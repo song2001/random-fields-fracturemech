@@ -7,3 +7,7 @@ def PyMATLAB():
 def OdbTools():
     """ returns the path to abaqus-odb-tools """
     return "C:\Users\Vince Pericoli\Documents\GitHub\abaqus-odb-tools"
+
+def saveResults():
+    """ returns the path to the VGPy save location """
+    return "C:\Temp\VGPy_Databases"
