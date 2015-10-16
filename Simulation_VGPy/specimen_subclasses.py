@@ -69,8 +69,8 @@ class SNTT(superSpecimen):
     # Attributes (object initialization)
     #
     def __init__(self, abqPath, material, radius, failureDispl, 
-                       displSetName='DisplacementSurface',
-                       setName='CenterNode'):
+                       setName='CenterNode',
+                       displSetName='DisplacementSurface'):
         """ return object with desired attributes """
         
         self.abqPath      = abqPath
@@ -135,7 +135,7 @@ class SNTT(superSpecimen):
         # determine which VGI's are the failure VGI's
         failureVGI = numpy.zeros((len(self.failureDispl),self.VGI.shape[1]),dtype=numpy.float64)
         
-        row = 0
+        row = int(0)
         alreadySaved = []
         for frame in range(0,nframe):
             for displ in self.failureDispl:
@@ -216,7 +216,7 @@ class CT(superSpecimen):
     #
     # Methods
     #
-    def getDeterministicVGI(self, overwrite=True):
+    def fetchDeterministicVGI(self, overwrite=True):
         """ 
         obtain the deterministic VGI.
         this means the VGI associated with the l* characteristic lengths.
@@ -338,15 +338,142 @@ class CT(superSpecimen):
         
         return nearestInd
 
-# these need new __init__'s ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 class BN(CT):
     """ blunted notch specimen. inherit from CT """
 
+
 class BB(SNTT):
     """ bolt-bearing specimen. inherit from SNTT """
+    def __init__(self, abqPath, material, radius, failureDispl
+                        setName='',
+                        displSetName=('LVDT_top','LVDT_bottom')):
+        """
+        return instance with desired attributes
+        failureDispl should be the ABAQUS displacement... so, account for symmetry
+        """
+        
+        # use SNTT init
+        SNTT.__init__(self, abqPath, material, radius, failureDispl,
+                       setName,displSetName)
+                       
+        # we dont want SNTT partName
+        self.partName = 'BB_symm'
+        return
+        
+    def determineFailureVGI(self):
+        """ 
+        determine which VGI's correspond to failures.
+        this is specific to BB because failure is specifically 
+        related to the observed LVDT (x2) measurements
+        """
+        raise Exception('failure displacement checks not thought through')
+        # obtain the displacement history of the LVDT sets
+        abqDispl = []
+        for i,dset in enumerate(self.displSetName):
+            # for all defined displacement sets
+            abqDispl.append( NodalVariable(self.abqPath, 'U', dset) )
+            abqDispl[i].fetchNodalOutput()
+            # average this history accross nodes, to obtain 1 observation
+            # per frame, per coordinate direction
+            abqDispl[i].avgNodalOutput()
+        
+        # obtain difference between LVDT observations
+        abqDispl = numpy.absolute( abqDispl[0].resultData - abqDispl[1].resultData )
+        
+        # number of frames in the abaqus history
+        nframe = abqDispl.shape[0]
+                
+        # determine which VGI's are the failure VGI's
+        failureVGI = numpy.zeros((len(self.failureDispl),self.VGI.shape[1]),dtype=numpy.float64)
+        
+        row = int(0)
+        alreadySaved = []
+        for frame in range(0,nframe):
+            for displ in self.failureDispl:
+                # this assumes that first node (column) is representative of all displacements
+                # and that the displacement is in the y-direction.
+                # the alreadySaved variable is a hack due to abaqus sometimes
+                # saving frame value twice (we dont want the same frame 2x)
+                if (abqDispl[frame,0,1] == displ) and (displ not in alreadySaved):
+                    failureVGI[row,:] = self.VGI[frame,:]
+                    row += 1
+                    alreadySaved.append(displ)
+        
+        self.failureVGI = failureVGI
+        return
+
 
 class BH(SNTT):
     """ bolt-hole specimen. inherit from SNTT """
+    
+    def __init__(self, abqPath, material, radius, failureDispl
+                        setName=''
+                        displSetName='LVDT'):
+        """
+        return instance with desired attributes
+        failureDispl should be the ABAQUS displacement... so, account for symmetry
+        """
+        
+        # use SNTT init
+        SNTT.__init__(self, abqPath, material, radius, failureDispl,
+                       setName,displSetName)
+                       
+        # we dont want SNTT partName
+        self.partName = 'BH_symm'
+        return
+        
+    def determineFailureVGI(self):
+        """ 
+        determine which VGI's correspond to failures.
+        this is specific to BH because failure is specifically 
+        related to the observed LVDT measurement
+        """
+        raise Exception('failure displacement checks not thought through')
+        # obtain the displacement history of the LVDT set
+        abqDispl = NodalVariable(self.abqPath, 'U', self.displSetName)
+        abqDispl.fetchNodalOutput()
+        # average this history accross nodes, to obtain 1 observation
+        # per frame, per coordinate direction
+        abqDispl.avgNodalOutput()
+        
+        # number of frames in the abaqus history
+        nframe = abqDispl.resultData.shape[0]
+                
+        # determine which VGI's are the failure VGI's
+        failureVGI = numpy.zeros((len(self.failureDispl),self.VGI.shape[1]),dtype=numpy.float64)
+        
+        row = int(0)
+        alreadySaved = []
+        for frame in range(0,nframe):
+            for displ in self.failureDispl:
+                # this assumes that first node (column) is representative of all displacements
+                # and that the displacement is in the y-direction.
+                # the alreadySaved variable is a hack due to abaqus sometimes
+                # saving frame value twice (we dont want the same frame 2x)
+                if (abqDispl.resultData[frame,0,1] == displ) and (displ not in alreadySaved):
+                    failureVGI[row,:] = self.VGI[frame,:]
+                    row += 1
+                    alreadySaved.append(displ)
+        
+        self.failureVGI = failureVGI
+        return
 
-class RBS(SNTT):
-    """ reduced beam section. inherit from SNTT """
+
+class RBS(BH):
+    """ reduced beam section. inherit from BH """
+    def __init__(self, abqPath, material, radius, failureDispl
+                        setName=''
+                        displSetName='LVDT'):
+        """
+        return instance with desired attributes
+        failureDispl should be the ABAQUS displacement... so, account for symmetry
+        """
+        
+        # use SNTT init (like BH)
+        SNTT.__init__(self, abqPath, material, radius, failureDispl,
+                       setName,displSetName)
+                       
+        # but we dont want SNTT partName
+        self.partName = 'RBS_'
+        return
