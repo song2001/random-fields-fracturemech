@@ -32,7 +32,7 @@ class SNTT(superSpecimen):
     """ a smooth notched tensile test specimen. inherits from superSpecimen
     
     Attributes:
-        abqPath      = string location of ODB file. Must be of the form:
+        odbPath      = string location of ODB file. Must be of the form:
                        'C:\\temp\\folder\\odbfile.odb'
         material     = string of material type: 'AP50' or 'AP70HP'
         radius       = float of the value for the notch radius
@@ -68,12 +68,12 @@ class SNTT(superSpecimen):
     #
     # Attributes (object initialization)
     #
-    def __init__(self, abqPath, material, radius, failureDispl, 
+    def __init__(self, odbPath, material, radius, failureDispl, 
                        setName='CenterNode',
                        displSetName='DisplacementSurface'):
         """ return object with desired attributes """
         
-        self.abqPath      = abqPath
+        self.odbPath      = odbPath
         self.failureDispl = failureDispl
         self.radius       = radius
         self.partName     = 'SNTT_' #partial-matching is supported
@@ -108,7 +108,7 @@ class SNTT(superSpecimen):
     @property
     def odbName(self):
         """ returns odb file name (with file extensions) """
-        return self.abqPath.split('\\')[-1]
+        return self.odbPath.split('\\')[-1]
         
     @property
     def name(self):
@@ -126,7 +126,7 @@ class SNTT(superSpecimen):
         """
         
         # obtain the displacement history of the simulation
-        abqDispl = NodalVariable(self.abqPath, 'U', self.displSetName)
+        abqDispl = NodalVariable(self.odbPath, 'U', self.displSetName)
         abqDispl.fetchNodalOutput()
         
         # number of frames in the abaqus history
@@ -170,12 +170,12 @@ class CT(superSpecimen):
     #
     # Attributes (object initialization)
     #
-    def __init__(self, abqPath, material, failureJ1, 
+    def __init__(self, odbPath, material, failureJ1, 
                        setName='CrackExtensionPlane', 
                        crackTipSet='CrackTip', crackName='', stepName='Pull'):
         """ return object with desired attributes """
         
-        self.abqPath   = abqPath
+        self.odbPath   = odbPath
         self.failureJ1 = failureJ1
         self.stepName  = stepName
         self.crackName = crackName
@@ -345,7 +345,7 @@ class BN(CT):
 
 class BB(SNTT):
     """ bolt-bearing specimen. inherit from SNTT """
-    def __init__(self, abqPath, material, radius, failureDispl
+    def __init__(self, odbPath, material, radius, failureDispl
                         setName='',
                         displSetName=('LVDT_top','LVDT_bottom')):
         """
@@ -354,7 +354,7 @@ class BB(SNTT):
         """
         
         # use SNTT init
-        SNTT.__init__(self, abqPath, material, radius, failureDispl,
+        SNTT.__init__(self, odbPath, material, radius, failureDispl,
                        setName,displSetName)
                        
         # we dont want SNTT partName
@@ -372,7 +372,7 @@ class BB(SNTT):
         abqDispl = []
         for i,dset in enumerate(self.displSetName):
             # for all defined displacement sets
-            abqDispl.append( NodalVariable(self.abqPath, 'U', dset) )
+            abqDispl.append( NodalVariable(self.odbPath, 'U', dset) )
             abqDispl[i].fetchNodalOutput()
             # average this history accross nodes, to obtain 1 observation
             # per frame, per coordinate direction
@@ -407,7 +407,7 @@ class BB(SNTT):
 class BH(SNTT):
     """ bolt-hole specimen. inherit from SNTT """
     
-    def __init__(self, abqPath, material, radius, failureDispl
+    def __init__(self, odbPath, material, radius, failureDispl
                         setName=''
                         displSetName='LVDT'):
         """
@@ -416,7 +416,7 @@ class BH(SNTT):
         """
         
         # use SNTT init
-        SNTT.__init__(self, abqPath, material, radius, failureDispl,
+        SNTT.__init__(self, odbPath, material, radius, failureDispl,
                        setName,displSetName)
                        
         # we dont want SNTT partName
@@ -431,7 +431,7 @@ class BH(SNTT):
         """
         raise Exception('failure displacement checks not thought through')
         # obtain the displacement history of the LVDT set
-        abqDispl = NodalVariable(self.abqPath, 'U', self.displSetName)
+        abqDispl = NodalVariable(self.odbPath, 'U', self.displSetName)
         abqDispl.fetchNodalOutput()
         # average this history accross nodes, to obtain 1 observation
         # per frame, per coordinate direction
@@ -462,7 +462,7 @@ class BH(SNTT):
 
 class RBS(BH):
     """ reduced beam section. inherit from BH """
-    def __init__(self, abqPath, material, radius, failureDispl
+    def __init__(self, odbPath, material, radius, failureDispl
                         setName=''
                         displSetName='LVDT'):
         """
@@ -471,7 +471,7 @@ class RBS(BH):
         """
         
         # use SNTT init (like BH)
-        SNTT.__init__(self, abqPath, material, radius, failureDispl,
+        SNTT.__init__(self, odbPath, material, radius, failureDispl,
                        setName,displSetName)
                        
         # but we dont want SNTT partName

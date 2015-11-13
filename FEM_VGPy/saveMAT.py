@@ -91,6 +91,8 @@ def VGIPy(inputData, saveKey):
     wd = os.getcwd()
     # change to save dir
     os.chdir( myPaths.saveResults() )
+    # start matlab engine
+    eng = matlab.engine.start_matlab()
     
     if (type(inputData) is list) or (type(inputData) is tuple):
         #if we have a list or tuple
@@ -101,16 +103,12 @@ def VGIPy(inputData, saveKey):
             #we want the dict to have matlab dtypes
             saveData[instance.name] = _convert_dict_dtypes( instance.__dict__ )
         
-        # start matlab engine
-        eng = matlab.engine.start_matlab()
-        
         # now, convert dict to struct
         saveStruct = eng.struct(saveData)       
         
         # transport struct to matlab workspace, and save
         eng.workspace[saveKey] = saveStruct
         eng.save(saveKey + '.mat',saveKey,nargout=0)
-                
         
     else:
         #assume input is a VGIPy class or otherwise has a name attribute
@@ -122,17 +120,17 @@ def VGIPy(inputData, saveKey):
         except:
             #this works if inputData is an instance.__dict__
             saveData[inputData["name"]] = _convert_dict_dtypes( inputData )
-        
-        # start matlab engine
-        eng = matlab.engine.start_matlab()
-        
+
         # now, convert dict to struct
         saveStruct = eng.struct(saveData)       
         
         # transport struct to matlab workspace, and save
         eng.workspace[saveKey] = saveStruct
         eng.save(saveKey + '.mat',saveKey,nargout=0)
-    
+
+
+    # exit matlab engine
+    eng.quit()    
     # return to previous dir
     os.chdir( wd )
     return
