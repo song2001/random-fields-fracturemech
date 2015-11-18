@@ -2,7 +2,7 @@
 Vincente Pericoli
 Oct 7, 2015
 
-Superclasses useful for abaqus simulations
+Superclasses useful for abaqus simulations of structural test specimens
 """
 #
 # imports
@@ -30,13 +30,14 @@ class superSpecimen(object):
         setName      = string of the name of the set of interest
                        (e.g. set to obtain VGI)
     
-    Attributes set by self.calcNodalMonoVGI():
+    Attributes set by self.calcNodalAvgMonoVGI():
         VGI          = array of entire VGI history
                        rows are associated with abaqus frames
                        columns are associated with the nodes in the set
     
-    Attributes set by self.calcElementalMonoVGI():
-        VGI          = same as above, but values are associated with elements
+    Attributes set by self.calcElemAvgMonoVGI():
+        VGI          = same as above, but average values are associated
+                       with elements
     
     Attributes set by self.fetchVolume():
         elemVol      = numpy array of element volumes in self.setName
@@ -60,7 +61,7 @@ class superSpecimen(object):
         self.material = None
         
         # set from Methods:
-        #calcNodalMonoVGI, calcElementalMonoVGI
+        #calcNodalAvgMonoVGI, calcElemAvgMonoVGI
         self.VGI           = None
         self.nodeLabels    = None
         self.elementLabels = None
@@ -87,8 +88,74 @@ class superSpecimen(object):
     #
     # Methods
     #
-    def calcNodalMonoVGI(self):
-        """ Obtains the monotonic VGI of (nodal) self.setName """
+    def calcNodalExtrapMonoVGI(self):
+        """ 
+        Obtians an extrapolated monotonic VGI for nodes of elements 
+        in (elemental) self.setName
+        """
+        
+        # obtain the PEEQ history
+        PEEQ = IntPtVariable(self.abqPath, 'PEEQ', self.setName)
+        PEEQ.fetchNodalExtrap()
+        
+        # obtain the mises history
+        mises = IntPtVariable(self.abqPath, 'MISES', self.setName)
+        mises.fetchNodalExtrap()
+        
+        # obtain the pressure history
+        pressure = IntPtVariable(self.abqPath, 'PRESS', self.setName)
+        pressure.fetchNodalExtrap()
+        
+        # obtain the VGI history of the simulation
+        # this must be done for all nodes within each element
+        VGI = numpy.zeros(mises.resultData.shape, dtype=numpy.float64)
+        
+        for i in range(0,len(mises.elementLabels)):
+            VGI[:,:,i] = calcMonotonicVGI( mises.resultData[:,:,i],
+                            pressure.resultData[:,:,i], 
+                            PEEQ.resultData[:,:,i] )
+    
+        # save VGI and labels, then return
+        self.VGI = VGI
+        self.elementLabels = mises.elementLabels
+        self.nodeLabels    = mises.nodeLabels
+        return
+        
+    def calcIntPtMonoVGI(self):
+        """ 
+        Obtains the monotonic VGI for integration points of elements
+        in (elemental) self.setName
+        """
+        
+        # obtain the PEEQ history
+        PEEQ = IntPtVariable(self.abqPath, 'PEEQ', self.setName)
+        PEEQ.fetchIntPtData()
+        
+        # obtain the mises history
+        mises = IntPtVariable(self.abqPath, 'MISES', self.setName)
+        mises.fetchIntPtData()
+        
+        # obtain the pressure history
+        pressure = IntPtVariable(self.abqPath, 'PRESS', self.setName)
+        pressure.fetchIntPtData()
+        
+        # obtain the VGI history of the simulation
+        # this must be done for all IntPts within each element
+        VGI = numpy.zeros(mises.resultData.shape, dtype=numpy.float64)
+        
+        for i in range(0,len(mises.elementLabels)):
+            VGI[:,:,i] = calcMonotonicVGI( mises.resultData[:,:,i],
+                            pressure.resultData[:,:,i], 
+                            PEEQ.resultData[:,:,i] )
+    
+        # save VGI and labels, then return
+        self.VGI = VGI
+        self.elementLabels = mises.elementLabels
+        self.intPtLabels   = mises.intPtLabels
+        return
+        
+    def calcNodalAvgMonoVGI(self):
+        """ Obtains the average monotonic VGI of (nodal) self.setName """
         
         # obtain the PEEQ history
         PEEQ = IntPtVariable(self.abqPath, 'PEEQ', self.setName)
@@ -110,8 +177,8 @@ class superSpecimen(object):
         self.nodeLabels = PEEQ.nodeLabels
         return
     
-    def calcElementalMonoVGI(self):
-        """ Obtains the monotonic VGI of (elemental) self.setName """
+    def calcElemAvgMonoVGI(self):
+        """ Obtains the average monotonic VGI of (elemental) self.setName """
         
         # obtain the PEEQ history
         PEEQ = IntPtVariable(self.abqPath, 'PEEQ', self.setName)
