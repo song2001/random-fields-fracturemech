@@ -10,8 +10,8 @@ import numpy
 
 def calcMonotonicVGI(mises, pressure, PEEQ):
         """
-        Takes a matrix of mises, pressure, PEEQ
-        returns a matrix of monotonic VGI
+        Takes rank-2 matrices of mises, pressure, PEEQ
+        returns a rank-2 matrix of monotonic VGI
         
         matrix must be ordered such that the rows are different
         "history" values, and the columns are different "nodes" 

@@ -79,8 +79,8 @@ def _convert_dict_dtypes(dictionary):
 
 def VGIPy(inputData, saveKey):
     """ 
-    saves a python Simulation_VGPy object instance
-    (or list/tuple of Simulation_VGPy object instances)
+    saves a python FEM_VGPy object instance
+    (or list/tuple of FEM_VGPy object instances)
     to a MATLAB database
     
     input:
@@ -96,6 +96,7 @@ def VGIPy(inputData, saveKey):
     
     if (type(inputData) is list) or (type(inputData) is tuple):
         #if we have a list or tuple
+        #(assume the elements are VGIPy classes)
         
         saveData = {}
         for instance in inputData:

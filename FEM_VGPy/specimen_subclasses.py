@@ -19,8 +19,7 @@ import numpy
 import sys
 import myPaths
 sys.path.append(myPaths.OdbTools())
-from calcVGI import *
-from sim_superclasses import *
+from specimen_superclasses import *
 from odbFieldVariableClasses import *
 from inpPartMeshClasses import *
 
@@ -42,12 +41,12 @@ class SNTT(superSpecimen):
         setName      = string of the name of the set of interest
                        (e.g. set to obtain VGI)
     
-    Attributes set by self.calcNodalMonoVGI():
+    Attributes set by self.calcNodalAvgMonoVGI():
         VGI          = numpy array of entire VGI history
                        rows are associated with abaqus frames
                        columns are associated with the nodes in the set
     
-    Attributes set by self.calcElementalMonoVGI():
+    Attributes set by self.calcElemAvgMonoVGI():
         VGI          = same as above, but values are associated with elements
     
     Attributes set by self.determineFailureVGI():
@@ -88,7 +87,7 @@ class SNTT(superSpecimen):
         #
         # set from Methods:
         #
-        #calcNodalMonoVGI, calcElementalMonoVGI
+        #calcNodalAvgMonoVGI, calcElemAvgMonoVGI
         self.VGI           = None
         self.nodeLabels    = None
         self.elementLabels = None
@@ -132,21 +131,26 @@ class SNTT(superSpecimen):
         # number of frames in the abaqus history
         nframe = abqDispl.resultData.shape[0]
         
-        # determine which VGI's are the failure VGI's
-        failureVGI = numpy.zeros((len(self.failureDispl),self.VGI.shape[1]),dtype=numpy.float64)
-        
-        row = int(0)
+        # determine which frames correspond to failure        
         alreadySaved = []
-        for frame in range(0,nframe):
+        failureIndex = []
+        for findex in range(0,nframe):
             for displ in self.failureDispl:
                 # this assumes that first node (column) is representative of all displacements
                 # and that the displacement is in the y-direction.
                 # the alreadySaved variable is a hack due to abaqus sometimes
                 # saving frame value twice (we dont want the same frame 2x)
-                if (abqDispl.resultData[frame,0,1] == displ) and (displ not in alreadySaved):
-                    failureVGI[row,:] = self.VGI[frame,:]
-                    row += 1
+                percent_err = abs( (abqDispl.resultData[findex,0,1] - displ)/displ )
+                if (percent_err < 0.0005) and (displ not in alreadySaved):
+                    #then this is a failure displacement we haven't saved yet
+                    failureIndex.append(frameind)
                     alreadySaved.append(displ)
+        
+        # therefore, the VGI's at those frames are the failure VGI's
+        if   len(VGI.shape) == 2:
+            failureVGI = VGI[failureIndex,:]
+        elif len(VGI.shape) == 3:
+            failureVGI = VGI[failureIndex,:,:]
         
         self.failureVGI = failureVGI
         return
@@ -187,7 +191,7 @@ class CT(superSpecimen):
         self.setName     = setName.upper()
         
         # set from Methods:
-        #calcNodalMonoVGI, calcElementalMonoVGI
+        #calcNodalAvgMonoVGI, calcElemAvgMonoVGI
         self.VGI           = None
         self.nodeLabels    = None
         self.elementLabels = None
@@ -234,8 +238,8 @@ class CT(superSpecimen):
             raise Exception("method not supported or meaningful for element output")
         elif self.nodeLabels is None:
             #if nodal calcs have not been executed, execute them...
-            print "\nExecuting calcNodalMonoVGI()..."
-            self.calcNodalMonoVGI()
+            print "\nExecuting calcNodalAvgMonoVGI()..."
+            self.calcNodalAvgMonoVGI()
             print "done!\n"
         
         #
@@ -302,19 +306,21 @@ class CT(superSpecimen):
         nframeHist = abqJ1.shape[0]
         
         # find out which frames represent observed failure
-        failureFrameInd = numpy.zeros(1,(len(self.failureJ1)), dtype=numpy.int_)
+        failureIndex = []
         for i,J1c in enumerate(self.failureJ1):
-            ind = self.__nearest_ind(abqJ1, J1c)
-            failureFrameInd[0,i] = ind
-            
-        # save the VGI for those failure frames to failureVGI
-        failureVGI = numpy.zeros((len(failureJ1),VGI.shape[1]), dtype=numpy.float64)
-        for k,ind in enumerate(failureFrameInd[0,:]):
-            # "frame" index was calculated from the J1 (history variable)
+            #for each observed J1c, find the nearest abaqus J1 and it's index
+            index = self.__nearest_ind(abqJ1, J1c)
+            # index is calculated from the J1 (history variable)
             # but VGI is calculated from a field variable.
             # field variables start at frame 0, while history variables
             # start at the first non-zero frame. So, we must add 1 to the index.
-            failureVGI[k,:] = VGI[ind+1,:]
+            failureIndex.append(int( index + 1 ))
+            
+        # therefore, the VGI's at those frames are the failure VGI's
+        if   len(VGI.shape) == 2:
+            failureVGI = VGI[failureIndex,:]
+        elif len(VGI.shape) == 3:
+            failureVGI = VGI[failureIndex,:,:]
         
         self.failureVGI = failureVGI
         return
