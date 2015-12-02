@@ -13,7 +13,7 @@ import sys
 import myPaths
 sys.path.append(myPaths.OdbTools())
 from odbFieldVariableClasses import *
-from inpPartMeshClasses import *
+from odbInstanceMeshClasses import *
 from calcVGI import *
 
 #
@@ -24,8 +24,9 @@ class superSpecimen(object):
     """ a superclass for test specimen simulations
     
     Attributes:
-        abqPath      = string location of ODB file. Must be of the form:
+        odbPath      = string location of ODB file. Must be of the form:
                        'C:\\temp\\folder\\odbfile.odb'
+        partName     = string name of 
         material     = string of material type: 'AP50' or 'AP70HP'
         setName      = string of the name of the set of interest
                        (e.g. set to obtain VGI)
@@ -50,24 +51,27 @@ class superSpecimen(object):
     #
     # Attributes (object initialization)
     #
-    def __init__(self):
+    def __init__(self, odbPath, material, instanceName, setName):
         """ return object with desired attributes """
         
-        self.abqPath  = None
-        self.partName = None
+        self.odbPath  = odbPath
         
         # must be uppercase
-        self.setName  = None
-        self.material = None
+        self.setName      = setName.upper()
+        self.material     = material.upper()
+        self.instanceName = instanceName.upper()
         
         # set from Methods:
-        #calcNodalAvgMonoVGI, calcElemAvgMonoVGI
+        #calc VGI's
         self.VGI           = None
+        self.failureVGI    = None
         self.nodeLabels    = None
         self.elementLabels = None
+        self.intPtLabels   = None
         #fetchMesh
         self.nodesCoords   = None
         self.elemConnect   = None
+        self.elemType      = None
         #fetchVolume
         self.elemVol       = None
         return
@@ -78,7 +82,7 @@ class superSpecimen(object):
     @property
     def odbName(self):
         """ returns odb file name (with file extensions) """
-        return self.abqPath.split('\\')[-1]
+        return self.odbPath.split('\\')[-1]
         
     @property
     def name(self):
@@ -95,15 +99,15 @@ class superSpecimen(object):
         """
         
         # obtain the PEEQ history
-        PEEQ = IntPtVariable(self.abqPath, 'PEEQ', self.setName)
+        PEEQ = IntPtVariable(self.odbPath, 'PEEQ', self.setName)
         PEEQ.fetchNodalExtrap()
         
         # obtain the mises history
-        mises = IntPtVariable(self.abqPath, 'MISES', self.setName)
+        mises = IntPtVariable(self.odbPath, 'MISES', self.setName)
         mises.fetchNodalExtrap()
         
         # obtain the pressure history
-        pressure = IntPtVariable(self.abqPath, 'PRESS', self.setName)
+        pressure = IntPtVariable(self.odbPath, 'PRESS', self.setName)
         pressure.fetchNodalExtrap()
         
         # obtain the VGI history of the simulation
@@ -128,15 +132,15 @@ class superSpecimen(object):
         """
         
         # obtain the PEEQ history
-        PEEQ = IntPtVariable(self.abqPath, 'PEEQ', self.setName)
+        PEEQ = IntPtVariable(self.odbPath, 'PEEQ', self.setName)
         PEEQ.fetchIntPtData()
         
         # obtain the mises history
-        mises = IntPtVariable(self.abqPath, 'MISES', self.setName)
+        mises = IntPtVariable(self.odbPath, 'MISES', self.setName)
         mises.fetchIntPtData()
         
         # obtain the pressure history
-        pressure = IntPtVariable(self.abqPath, 'PRESS', self.setName)
+        pressure = IntPtVariable(self.odbPath, 'PRESS', self.setName)
         pressure.fetchIntPtData()
         
         # obtain the VGI history of the simulation
@@ -153,20 +157,46 @@ class superSpecimen(object):
         self.elementLabels = mises.elementLabels
         self.intPtLabels   = mises.intPtLabels
         return
+
+    def calcAllMonoVGI(self):
+        """ 
+        Obtains the monotonic VGI at integration points AND nodes
+        (extrapolated) of elements in (elemental) self.setName
+        
+        i.e. it calculates the monotonic VGI at all possible 
+        data locations (no averaging scheme)
+        
+        saves this to self.VGI as a dictionary
+        integration point data has dictionary key 'ELEM_IP'
+        nodal data has dictionary key 'ELEM_NODAL'
+        """
+        
+        # obtain the nodal (extrapolated) VGI
+        self.calcNodalExtrapMonoVGI()
+        nodal_VGI = self.VGI
+        
+        # obtain the integration point VGI
+        self.calcIntPtMonoVGI()
+        ip_VGI = self.VGI
+        
+        # save as dict to VGI
+        self.VGI = {'ELEM_IP':ip_VGI, 'ELEM_NODAL':nodal_VGI}
+        return
+        
         
     def calcNodalAvgMonoVGI(self):
         """ Obtains the average monotonic VGI of (nodal) self.setName """
         
         # obtain the PEEQ history
-        PEEQ = IntPtVariable(self.abqPath, 'PEEQ', self.setName)
+        PEEQ = IntPtVariable(self.odbPath, 'PEEQ', self.setName)
         PEEQ.fetchNodalAverage()
         
         # obtain the mises history
-        mises = IntPtVariable(self.abqPath, 'MISES', self.setName)
+        mises = IntPtVariable(self.odbPath, 'MISES', self.setName)
         mises.fetchNodalAverage()
         
         # obtain the pressure history
-        pressure = IntPtVariable(self.abqPath, 'PRESS', self.setName)
+        pressure = IntPtVariable(self.odbPath, 'PRESS', self.setName)
         pressure.fetchNodalAverage()
         
         # obtain the VGI history of the simulation
@@ -181,15 +211,15 @@ class superSpecimen(object):
         """ Obtains the average monotonic VGI of (elemental) self.setName """
         
         # obtain the PEEQ history
-        PEEQ = IntPtVariable(self.abqPath, 'PEEQ', self.setName)
+        PEEQ = IntPtVariable(self.odbPath, 'PEEQ', self.setName)
         PEEQ.fetchElementAverage()
         
         # obtain the mises history
-        mises = IntPtVariable(self.abqPath, 'MISES', self.setName)
+        mises = IntPtVariable(self.odbPath, 'MISES', self.setName)
         mises.fetchElementAverage()
         
         # obtain the pressure history
-        pressure = IntPtVariable(self.abqPath, 'PRESS', self.setName)
+        pressure = IntPtVariable(self.odbPath, 'PRESS', self.setName)
         pressure.fetchElementAverage()
         
         # obtain the VGI history of the simulation
@@ -200,22 +230,38 @@ class superSpecimen(object):
         self.elementLabels = PEEQ.elementLabels
         return
 
-    def fetchMeshInfo(self, partName=None):
+    def _save_failureVGI(self, failureIndex):
+        """ given a tuple of the failure indices, extract/save the self.falureVGI """
+        
+        if type(self.VGI) is dict:
+            # if self.VGI is dict, we want failureVGI to be a dict
+            failureVGI = {}
+            for key in self.VGI.keys():
+                # in those cases, VGI is always rank-3: see self.calcAllMonoVGI()
+                failureVGI[key] = self.VGI[failureIndex,:,:]
+        
+        # otherwise, self.VGI is a numpy array of rank-2 or rank-3
+        elif len(self.VGI.shape) == 2:
+            failureVGI = self.VGI[failureIndex,:]
+        elif len(self.VGI.shape) == 3:
+            failureVGI = self.VGI[failureIndex,:,:]
+        
+        self.failureVGI = failureVGI
+        return
+        
+    def fetchMeshInfo(self, instanceName=None, exactKey=False):
         """ obtain the nodal coordinates and elemental connectivity """
-        
-        #check input
-        if partName is None:
-            partName = self.partName
-        
-        #inpPath is the name of the input file (will be same as odb)
-        inpPath  = self.abqPath.replace(".odb",".inp")
-        
-        #generate PartMesh object and fetch the mesh
-        mesh = PartMesh(inpPath, partName)
+        # check input
+        if instanceName is None:
+            instanceName = self.instanceName
+
+        # generate InstanceMesh object and fetch the mesh
+        mesh = InstanceMesh(self.odbPath, instanceName, exactKey)
         mesh.fetchMesh()
 
-        #save to self, return
+        # save to self, return
         self.elemConnect = mesh.elemConnect
+        self.elemType    = mesh.elemType
         self.nodesCoords = mesh.nodesCoords
         return
         
