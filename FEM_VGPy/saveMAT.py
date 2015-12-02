@@ -24,24 +24,31 @@ def _convert_dict_dtypes(dictionary):
     takes in dictionary of numpy/python dtypes, and returns 
     dictionary of nearly equivalent MATLAB dtypes.
 
-    type 'list' is currently unsupported
-    (lists could be mixed dtype... need a matlab cell or similar)
+    type 'list' is currently unsupported if they are mixed dtype.
+    (though this could be easily implemented using MATLAB cell,
+     it would not work well in the context of FEM_VGPy)
     """
     dict_out = {}
     
     for key in dictionary.keys():
-        #walk through all keys, checking the type
+        # walk through all keys, checking the type
         value = dictionary[key]
 
+        # first if-elif ladder (initial checks)
         if value is None:
             #don't add it to the output
-            pass
-
+            continue
         elif type(value) is str:
             # matlab can automatically convert str to char
-            pass
+            dict_out[key] = value
+            continue
+        elif type(value) is list:
+            # attempt to convert this to a tuple. element
+            # dtypes will be taken care of in 2nd ladder
+            value = tuple(value)
         
-        elif type(value) is tuple:
+        # second if-elif ladder (convert dtypes)
+        if type(value) is tuple:
             #iterable type; convert to array
             if type(value[0]) is int:
                 dict_out[key] = matlab.int32(value)
@@ -65,6 +72,10 @@ def _convert_dict_dtypes(dictionary):
             # matlab considers ints to be matrices as well.
             dict_out[key] = matlab.int32([value])
 
+        elif type(value) is dict:
+            # use recursion to take care of this
+            dict_out[key] = _convert_dict_dtypes(value)
+            
         else:
             # undefined. alert user, then save as-is.
             # if there is a problem, matlab engine will
@@ -96,9 +107,11 @@ def VGIPy(inputData, saveKey):
     
     if (type(inputData) is list) or (type(inputData) is tuple):
         #if we have a list or tuple
-        #(assume the elements are VGIPy classes)
+        #then assume the elements are VGIPy classes
         
+        #initialize saveData dict which will be exported
         saveData = {}
+        
         for instance in inputData:
             #save instance dicts to saveData dict
             #we want the dict to have matlab dtypes
