@@ -21,7 +21,6 @@ import myPaths
 sys.path.append(myPaths.OdbTools())
 from specimen_superclasses import *
 from odbFieldVariableClasses import *
-from inpPartMeshClasses import *
 
 #
 # subclass definitions
@@ -72,48 +71,16 @@ class SNTT(superSpecimen):
                        displSetName='DisplacementSurface'):
         """ return object with desired attributes """
         
-        self.odbPath      = odbPath
-        self.failureDispl = failureDispl
+        # initialize the generic superclass variables
+        superSpecimen.__init__(self, odbPath=odbPath, instanceName="SNTT_", 
+                                     setName=setName, material=material)
+        
+        # initialize SNTT-specific variables
         self.radius       = radius
-        self.partName     = 'SNTT_' #partial-matching is supported
-        
-        #
-        # must be uppercase
-        #
-        self.setName      = setName.upper()
-        self.material     = material.upper()
-        self.displSetName = displSetName.upper()
-        
-        #
-        # set from Methods:
-        #
-        #calcNodalAvgMonoVGI, calcElemAvgMonoVGI
-        self.VGI           = None
-        self.nodeLabels    = None
-        self.elementLabels = None
-        #determineFailureVGI
-        self.failureVGI    = None
-        #fetchMesh
-        self.nodesCoords   = None
-        self.elemConnect   = None
-        #fetchVolume
-        self.elemVol       = None
-        
+        self.failureDispl = failureDispl
+        self.displSetName = displSetName.upper() # must be uppercase
         return
     
-    #
-    # Set Dependent Attributes
-    #
-    @property
-    def odbName(self):
-        """ returns odb file name (with file extensions) """
-        return self.odbPath.split('\\')[-1]
-        
-    @property
-    def name(self):
-        """ returns name of simulation (no file extension) """
-        return os.path.splitext(self.odbName)[0]
-
     #
     # Methods
     #
@@ -131,28 +98,31 @@ class SNTT(superSpecimen):
         # number of frames in the abaqus history
         nframe = abqDispl.resultData.shape[0]
         
-        # determine which frames correspond to failure        
-        alreadySaved = []
+        # determine which frames correspond to failure
         failureIndex = []
-        for findex in range(0,nframe):
-            for displ in self.failureDispl:
-                # this assumes that first node (column) is representative of all displacements
-                # and that the displacement is in the y-direction.
-                # the alreadySaved variable is a hack due to abaqus sometimes
-                # saving frame value twice (we dont want the same frame 2x)
-                percent_err = abs( (abqDispl.resultData[findex,0,1] - displ)/displ )
-                if (percent_err < 0.0005) and (displ not in alreadySaved):
-                    #then this is a failure displacement we haven't saved yet
-                    failureIndex.append(frameind)
-                    alreadySaved.append(displ)
+        for displ in self.failureDispl:
+            # for all failure displacements, locate which frame index it corresponds to.
+            # this assumes that the first node (column) is equivalent to the
+            # other columns, and that the relevant displacement is in the 
+            # 2-direction (AKA y-direction).
+            
+            # we don't want to compare floats directly, so use a percent error
+            percent_err = numpy.absolute( (abqDispl.resultData[:,0,1] - displ)/displ )
+            
+            # lowest percent error => equivalent to failure displ
+            frameind = numpy.argmin(percent_err)
+            
+            # check to see that it is within tolerance
+            if percent_err[frameind] < 0.0005:
+                # good. save it.
+                failureIndex.append(frameind)
+            else:
+                # provide warning that something went wrong.
+                # append nothing. try to continue.
+                print "a failure index could not be located!\n"
         
-        # therefore, the VGI's at those frames are the failure VGI's
-        if   len(VGI.shape) == 2:
-            failureVGI = VGI[failureIndex,:]
-        elif len(VGI.shape) == 3:
-            failureVGI = VGI[failureIndex,:,:]
-        
-        self.failureVGI = failureVGI
+        # therefore, the VGI's at those frames are the failure VGI's... save them!
+        self._save_failureVGI(failureIndex)
         return
 
 class CT(superSpecimen):
@@ -179,28 +149,15 @@ class CT(superSpecimen):
                        crackTipSet='CrackTip', crackName='', stepName='Pull'):
         """ return object with desired attributes """
         
-        self.odbPath   = odbPath
-        self.failureJ1 = failureJ1
-        self.stepName  = stepName
-        self.crackName = crackName
-        self.partName  = "CT_" #partial matching is supported
+        # initialize generic superclass variables
+        superSpecimen.__init__(self, odbPath=odbPath, instanceName="CT_", 
+                                     setName=setName, material=material)
         
-        # these MUST be uppercase
-        self.material    = material.upper()
-        self.crackTipSet = crackName.upper()
-        self.setName     = setName.upper()
-        
-        # set from Methods:
-        #calcNodalAvgMonoVGI, calcElemAvgMonoVGI
-        self.VGI           = None
-        self.nodeLabels    = None
-        self.elementLabels = None
-        #fetchMesh
-        self.nodesCoords   = None
-        self.elemConnect   = None
-        #fetchVolume
-        self.elemVol       = None
-        
+        # initialize CT-specific variables
+        self.failureJ1   = failureJ1
+        self.stepName    = stepName
+        self.crackName   = crackName
+        self.crackTipSet = crackName.upper() # must be uppercase
         return
 
     #
@@ -211,9 +168,9 @@ class CT(superSpecimen):
     def lstar(self):
         """ this is the deterministic length scale """
         if self.material == 'AP50':
-            return [0.0033, 0.007, 0.017]
+            return (0.0033, 0.007, 0.017)
         elif self.material == 'AP70HP':
-            return [0.0025, 0.012, 0.016]
+            return (0.0025, 0.012, 0.016)
         else:
             raise Exception('Undefined material!')
     
@@ -266,8 +223,13 @@ class CT(superSpecimen):
         lstarNodeInfo = numpy.zeros((2,nlstar),dtype=numpy.int_)
         
         for i,lstar in enumerate(self.lstar):
-            #find out which nodes are closest to "lstar away from the crack-tip"
-            nodind = self.__nearest_ind(setCoords[:,0], crackTipCoords[0,0]-lstar)
+            # find out which nodes are closest to "lstar away from the crack-tip"
+            # this assumes crack tip is at a smaller x-coord than the crack opening
+            target = crackTipCoords[0,0] - lstar
+            percent_err = numpy.absolute( (setCoords[:,0] - target) / target )
+            
+            # the node we want would have the lowest percent error
+            nodind = numpy.argmin(percent_err)
             
             #save the nodal index value
             lstarNodeInfo[0,i] = nodind
@@ -307,179 +269,159 @@ class CT(superSpecimen):
         
         # find out which frames represent observed failure
         failureIndex = []
-        for i,J1c in enumerate(self.failureJ1):
+        for J1c in self.failureJ1:
             #for each observed J1c, find the nearest abaqus J1 and it's index
-            index = self.__nearest_ind(abqJ1, J1c)
+            percent_err = numpy.absolute( (abqJ1 - J1c)/J1c )
+            
+            # the frame we want has the lowest percent error
+            index = numpy.argmin(percent_err)
+            
             # index is calculated from the J1 (history variable)
             # but VGI is calculated from a field variable.
             # field variables start at frame 0, while history variables
             # start at the first non-zero frame. So, we must add 1 to the index.
             failureIndex.append(int( index + 1 ))
             
-        # therefore, the VGI's at those frames are the failure VGI's
-        if   len(VGI.shape) == 2:
-            failureVGI = VGI[failureIndex,:]
-        elif len(VGI.shape) == 3:
-            failureVGI = VGI[failureIndex,:,:]
-        
-        self.failureVGI = failureVGI
+        # therefore, the VGI's at those frames are the failure VGI's... save them!
+        self._save_failureVGI(failureIndex)
         return
-        
-    def __nearest_ind(self,row_array,searchValue):
-        """ 
-        determines which element of row_array is nearest to searchValue.
-        returns its index
-        """
-        
-        # abs difference between row_array elements and searchValue:
-        delta = numpy.absolute( row_array - searchValue )
-        
-        # determine which abs difference is the smallest:
-        smallestDelta = delta[0]
-        nearestInd    = int(0)
-        for i in range(0,row_array.size):
-            if delta[i] < smallestDelta:
-                smallestDelta = delta[i]
-                nearestInd    = i
-        
-        return nearestInd
+
+##### None of the below currently works. Just a skeletal framework.
+# class BN(CT):
+    # """ blunted notch specimen. inherit from CT """
 
 
-class BN(CT):
-    """ blunted notch specimen. inherit from CT """
-
-
-class BB(SNTT):
-    """ bolt-bearing specimen. inherit from SNTT """
-    def __init__(self, odbPath, material, radius, failureDispl
-                        setName='',
-                        displSetName=('LVDT_top','LVDT_bottom')):
-        """
-        return instance with desired attributes
-        failureDispl should be the ABAQUS displacement... so, account for symmetry
-        """
+# class BB(SNTT):
+    # """ bolt-bearing specimen. inherit from SNTT """
+    # def __init__(self, odbPath, material, radius, failureDispl
+                        # setName='',
+                        # displSetName=('LVDT_top','LVDT_bottom')):
+        # """
+        # return instance with desired attributes
+        # failureDispl should be the ABAQUS displacement... so, account for symmetry
+        # """
         
-        # use SNTT init
-        SNTT.__init__(self, odbPath, material, radius, failureDispl,
-                       setName,displSetName)
+        # # use SNTT init
+        # SNTT.__init__(self, odbPath, material, radius, failureDispl,
+                       # setName,displSetName)
                        
-        # we dont want SNTT partName
-        self.partName = 'BB_symm'
-        return
+        # # we dont want SNTT partName
+        # self.partName = 'BB_symm'
+        # return
         
-    def determineFailureVGI(self):
-        """ 
-        determine which VGI's correspond to failures.
-        this is specific to BB because failure is specifically 
-        related to the observed LVDT (x2) measurements
-        """
-        raise Exception('failure displacement checks not thought through')
-        # obtain the displacement history of the LVDT sets
-        abqDispl = []
-        for i,dset in enumerate(self.displSetName):
-            # for all defined displacement sets
-            abqDispl.append( NodalVariable(self.odbPath, 'U', dset) )
-            abqDispl[i].fetchNodalOutput()
-            # average this history accross nodes, to obtain 1 observation
-            # per frame, per coordinate direction
-            abqDispl[i].avgNodalOutput()
+    # def determineFailureVGI(self):
+        # """ 
+        # determine which VGI's correspond to failures.
+        # this is specific to BB because failure is specifically 
+        # related to the observed LVDT (x2) measurements
+        # """
+        # raise Exception('failure displacement checks not thought through')
+        # # obtain the displacement history of the LVDT sets
+        # abqDispl = []
+        # for i,dset in enumerate(self.displSetName):
+            # # for all defined displacement sets
+            # abqDispl.append( NodalVariable(self.odbPath, 'U', dset) )
+            # abqDispl[i].fetchNodalOutput()
+            # # average this history accross nodes, to obtain 1 observation
+            # # per frame, per coordinate direction
+            # abqDispl[i].avgNodalOutput()
         
-        # obtain difference between LVDT observations
-        abqDispl = numpy.absolute( abqDispl[0].resultData - abqDispl[1].resultData )
+        # # obtain difference between LVDT observations
+        # abqDispl = numpy.absolute( abqDispl[0].resultData - abqDispl[1].resultData )
         
-        # number of frames in the abaqus history
-        nframe = abqDispl.shape[0]
+        # # number of frames in the abaqus history
+        # nframe = abqDispl.shape[0]
                 
-        # determine which VGI's are the failure VGI's
-        failureVGI = numpy.zeros((len(self.failureDispl),self.VGI.shape[1]),dtype=numpy.float64)
+        # # determine which VGI's are the failure VGI's
+        # failureVGI = numpy.zeros((len(self.failureDispl),self.VGI.shape[1]),dtype=numpy.float64)
         
-        row = int(0)
-        alreadySaved = []
-        for frame in range(0,nframe):
-            for displ in self.failureDispl:
-                # this assumes that first node (column) is representative of all displacements
-                # and that the displacement is in the y-direction.
-                # the alreadySaved variable is a hack due to abaqus sometimes
-                # saving frame value twice (we dont want the same frame 2x)
-                if (abqDispl[frame,0,1] == displ) and (displ not in alreadySaved):
-                    failureVGI[row,:] = self.VGI[frame,:]
-                    row += 1
-                    alreadySaved.append(displ)
+        # row = int(0)
+        # alreadySaved = []
+        # for frame in range(0,nframe):
+            # for displ in self.failureDispl:
+                # # this assumes that first node (column) is representative of all displacements
+                # # and that the displacement is in the y-direction.
+                # # the alreadySaved variable is a hack due to abaqus sometimes
+                # # saving frame value twice (we dont want the same frame 2x)
+                # if (abqDispl[frame,0,1] == displ) and (displ not in alreadySaved):
+                    # failureVGI[row,:] = self.VGI[frame,:]
+                    # row += 1
+                    # alreadySaved.append(displ)
         
-        self.failureVGI = failureVGI
-        return
+        # self.failureVGI = failureVGI
+        # return
 
 
-class BH(SNTT):
-    """ bolt-hole specimen. inherit from SNTT """
+# class BH(SNTT):
+    # """ bolt-hole specimen. inherit from SNTT """
     
-    def __init__(self, odbPath, material, radius, failureDispl
-                        setName=''
-                        displSetName='LVDT'):
-        """
-        return instance with desired attributes
-        failureDispl should be the ABAQUS displacement... so, account for symmetry
-        """
+    # def __init__(self, odbPath, material, radius, failureDispl
+                        # setName=''
+                        # displSetName='LVDT'):
+        # """
+        # return instance with desired attributes
+        # failureDispl should be the ABAQUS displacement... so, account for symmetry
+        # """
         
-        # use SNTT init
-        SNTT.__init__(self, odbPath, material, radius, failureDispl,
-                       setName,displSetName)
+        # # use SNTT init
+        # SNTT.__init__(self, odbPath, material, radius, failureDispl,
+                       # setName,displSetName)
                        
-        # we dont want SNTT partName
-        self.partName = 'BH_symm'
-        return
+        # # we dont want SNTT partName
+        # self.partName = 'BH_symm'
+        # return
         
-    def determineFailureVGI(self):
-        """ 
-        determine which VGI's correspond to failures.
-        this is specific to BH because failure is specifically 
-        related to the observed LVDT measurement
-        """
-        raise Exception('failure displacement checks not thought through')
-        # obtain the displacement history of the LVDT set
-        abqDispl = NodalVariable(self.odbPath, 'U', self.displSetName)
-        abqDispl.fetchNodalOutput()
-        # average this history accross nodes, to obtain 1 observation
-        # per frame, per coordinate direction
-        abqDispl.avgNodalOutput()
+    # def determineFailureVGI(self):
+        # """ 
+        # determine which VGI's correspond to failures.
+        # this is specific to BH because failure is specifically 
+        # related to the observed LVDT measurement
+        # """
+        # raise Exception('failure displacement checks not thought through')
+        # # obtain the displacement history of the LVDT set
+        # abqDispl = NodalVariable(self.odbPath, 'U', self.displSetName)
+        # abqDispl.fetchNodalOutput()
+        # # average this history accross nodes, to obtain 1 observation
+        # # per frame, per coordinate direction
+        # abqDispl.avgNodalOutput()
         
-        # number of frames in the abaqus history
-        nframe = abqDispl.resultData.shape[0]
+        # # number of frames in the abaqus history
+        # nframe = abqDispl.resultData.shape[0]
                 
-        # determine which VGI's are the failure VGI's
-        failureVGI = numpy.zeros((len(self.failureDispl),self.VGI.shape[1]),dtype=numpy.float64)
+        # # determine which VGI's are the failure VGI's
+        # failureVGI = numpy.zeros((len(self.failureDispl),self.VGI.shape[1]),dtype=numpy.float64)
         
-        row = int(0)
-        alreadySaved = []
-        for frame in range(0,nframe):
-            for displ in self.failureDispl:
-                # this assumes that first node (column) is representative of all displacements
-                # and that the displacement is in the y-direction.
-                # the alreadySaved variable is a hack due to abaqus sometimes
-                # saving frame value twice (we dont want the same frame 2x)
-                if (abqDispl.resultData[frame,0,1] == displ) and (displ not in alreadySaved):
-                    failureVGI[row,:] = self.VGI[frame,:]
-                    row += 1
-                    alreadySaved.append(displ)
+        # row = int(0)
+        # alreadySaved = []
+        # for frame in range(0,nframe):
+            # for displ in self.failureDispl:
+                # # this assumes that first node (column) is representative of all displacements
+                # # and that the displacement is in the y-direction.
+                # # the alreadySaved variable is a hack due to abaqus sometimes
+                # # saving frame value twice (we dont want the same frame 2x)
+                # if (abqDispl.resultData[frame,0,1] == displ) and (displ not in alreadySaved):
+                    # failureVGI[row,:] = self.VGI[frame,:]
+                    # row += 1
+                    # alreadySaved.append(displ)
         
-        self.failureVGI = failureVGI
-        return
+        # self.failureVGI = failureVGI
+        # return
 
 
-class RBS(BH):
-    """ reduced beam section. inherit from BH """
-    def __init__(self, odbPath, material, radius, failureDispl
-                        setName=''
-                        displSetName='LVDT'):
-        """
-        return instance with desired attributes
-        failureDispl should be the ABAQUS displacement... so, account for symmetry
-        """
+# class RBS(BH):
+    # """ reduced beam section. inherit from BH """
+    # def __init__(self, odbPath, material, radius, failureDispl
+                        # setName=''
+                        # displSetName='LVDT'):
+        # """
+        # return instance with desired attributes
+        # failureDispl should be the ABAQUS displacement... so, account for symmetry
+        # """
         
-        # use SNTT init (like BH)
-        SNTT.__init__(self, odbPath, material, radius, failureDispl,
-                       setName,displSetName)
+        # # use SNTT init (like BH)
+        # SNTT.__init__(self, odbPath, material, radius, failureDispl,
+                       # setName,displSetName)
                        
-        # but we dont want SNTT partName
-        self.partName = 'RBS_'
-        return
+        # # but we dont want SNTT partName
+        # self.partName = 'RBS_'
+        # return
