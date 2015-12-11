@@ -91,23 +91,23 @@ class SNTT(superSpecimen):
         related to the observed displacement
         """
         
-        # obtain the displacement history of the simulation
+        # obtain the displacement history of the simulation.
+        # assume that the relevant displacement is in the 2-direction
+        # (AKA y-direction), and further assume that the first node 
+        # (column) is representative of the other columns
         abqDispl = NodalVariable(self.odbPath, 'U', self.displSetName)
         abqDispl.fetchNodalOutput()
+        abqDispl = abqDispl.resultData[:,0,1]
         
         # number of frames in the abaqus history
-        nframe = abqDispl.resultData.shape[0]
+        nframe = abqDispl.shape[0]
         
         # determine which frames correspond to failure
         failureIndex = []
         for displ in self.failureDispl:
             # for all failure displacements, locate which frame index it corresponds to.
-            # this assumes that the first node (column) is equivalent to the
-            # other columns, and that the relevant displacement is in the 
-            # 2-direction (AKA y-direction).
-            
             # we don't want to compare floats directly, so use a percent error
-            percent_err = numpy.absolute( (abqDispl.resultData[:,0,1] - displ)/displ )
+            percent_err = numpy.absolute( (abqDispl - displ)/displ )
             
             # lowest percent error => equivalent to failure displ
             frameind = numpy.argmin(percent_err)
@@ -119,10 +119,14 @@ class SNTT(superSpecimen):
             else:
                 # provide warning that something went wrong.
                 # append nothing. try to continue.
-                print "a failure index could not be located!\n"
+                print ("\n!! WARNING: the failure index could not be located" + 
+                       "for failure displacement " + str(displ) + " !!\n")
         
         # therefore, the VGI's at those frames are the failure VGI's... save them!
-        self._save_failureVGI(failureIndex)
+        self._save_failureVGI(tuple(failureIndex))
+        
+        # we also want to save the "loading" history
+        self.historyDispl = abqDispl
         return
 
 class CT(superSpecimen):
@@ -260,12 +264,20 @@ class CT(superSpecimen):
     def determineFailureVGI(self):
         """ determine which VGI's are the failure VGI's  """
         
-        # obtain the J1 (last contour) history of the simulation
-        abqJ1 = CrackVariable(self.odbName, self.stepName, self.crackName)
-        abqJ1.getJintegral()
-        abqJ1 = abqJ1.resultData[:,-1]
+        # obtain the J1 history of the simulation
+        cv = CrackVariable(self.odbName, self.stepName, self.crackName)
+        cv.getJintegral()
+        
         # number of total frames in the abaqus history
-        nframeHist = abqJ1.shape[0]
+        nframeHist = cv.shape[0]
+        
+        # we want to prepend the J1 with a zero, since it is a history 
+        # variable; history variables start at the first non-zero frame,
+        # while field variables start at frame 0. This allows us to 
+        # return field-variable compatible indices.
+        abqJ1       = numpy.zeros((nframeHist+1,1),dtype=numpy.float64)
+        abqJ1[1:,:] = cv.resultData[:,-1]
+
         
         # find out which frames represent observed failure
         failureIndex = []
@@ -275,15 +287,13 @@ class CT(superSpecimen):
             
             # the frame we want has the lowest percent error
             index = numpy.argmin(percent_err)
-            
-            # index is calculated from the J1 (history variable)
-            # but VGI is calculated from a field variable.
-            # field variables start at frame 0, while history variables
-            # start at the first non-zero frame. So, we must add 1 to the index.
-            failureIndex.append(int( index + 1 ))
+            failureIndex.append( int(index) )
             
         # therefore, the VGI's at those frames are the failure VGI's... save them!
-        self._save_failureVGI(failureIndex)
+        self._save_failureVGI(tuple(failureIndex))
+        
+        # we also want to save the "loading" history
+        self.history = abqJ1
         return
 
 ##### None of the below currently works. Just a skeletal framework.

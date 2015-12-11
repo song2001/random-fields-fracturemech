@@ -147,5 +147,7 @@ def VGIPy(inputData, saveKey):
     eng.quit()    
     # return to previous dir
     os.chdir( wd )
+    # alert user
+    print "MATLAB Binary Database saved to: " + myPaths.saveResults()
     return
 

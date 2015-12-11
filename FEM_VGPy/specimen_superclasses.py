@@ -236,9 +236,9 @@ class superSpecimen(object):
         if type(self.VGI) is dict:
             # if self.VGI is dict, we want failureVGI to be a dict
             failureVGI = {}
-            for key in self.VGI.keys():
+            for key,VGI in self.VGI.items():
                 # in those cases, VGI is always rank-3: see self.calcAllMonoVGI()
-                failureVGI[key] = self.VGI[failureIndex,:,:]
+                failureVGI[key] = VGI[failureIndex,:,:]
         
         # otherwise, self.VGI is a numpy array of rank-2 or rank-3
         elif len(self.VGI.shape) == 2:
