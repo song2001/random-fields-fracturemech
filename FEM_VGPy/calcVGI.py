@@ -31,8 +31,8 @@ def calcMonotonicVGI(mises, pressure, PEEQ):
     
     # calculate the stress triaxiality
     # stress triaxiality is an element-wise divide of -pressure/mises
-    triax[1:-1,:] = -pressure[1:-1,:]/mises[1:-1,:]
-    triax[0,:] = 0.0 #set to avoid NaN (since division by zero)
+	# skip first element (since division by zero), this will remain 0
+    triax[1:,:] = -pressure[1:,:]/mises[1:,:]
     
     # calculate the integrand
     integrand = numpy.exp(1.5*triax)
@@ -44,9 +44,9 @@ def calcMonotonicVGI(mises, pressure, PEEQ):
     
     #trap rule numerical integration:
     for row in range(1,nrow):
-        #for all rows, except first row
+        #for all rows ("history" values), except first row
         for col in range(0,ncol):
-            #for all columns
+            #for all columns (or "objects" with distinctly different VGIs)
             
             #incremental VGI
             dVGI = 0.5*(PEEQ[row,col] - PEEQ[row-1,col])*(integrand[row,col] + integrand[row-1,col])
