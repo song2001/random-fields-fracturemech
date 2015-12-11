@@ -6,16 +6,17 @@ __pycache__/
 # C extensions
 *.so
 
-# Abaqus stuffs
+# Abaqus stuff
 *.odb
 *.inp
 *.rp[yt]
+
+# MATLAB stuff
+*.asv
 
 # debugging stuff
 *.csv
 *.xls*
 debug.py
 verify*.py
-
-# MATLAB stuff
-*.asv
+test*.m
