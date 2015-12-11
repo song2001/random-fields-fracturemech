@@ -31,7 +31,7 @@ def calcMonotonicVGI(mises, pressure, PEEQ):
     
     # calculate the stress triaxiality
     # stress triaxiality is an element-wise divide of -pressure/mises
-	# skip first element (since division by zero), this will remain 0
+    # skip first element (since division by zero), this will remain 0
     triax[1:,:] = -pressure[1:,:]/mises[1:,:]
     
     # calculate the integrand
