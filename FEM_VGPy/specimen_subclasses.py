@@ -126,7 +126,7 @@ class SNTT(superSpecimen):
         self._save_failureVGI(tuple(failureIndex))
         
         # we also want to save the "loading" history
-        self.historyDispl = abqDispl
+        self.loadHist = abqDispl
         return
 
 class CT(superSpecimen):
@@ -293,7 +293,7 @@ class CT(superSpecimen):
         self._save_failureVGI(tuple(failureIndex))
         
         # we also want to save the "loading" history
-        self.history = abqJ1
+        self.loadHist = abqJ1
         return
 
 ##### None of the below currently works. Just a skeletal framework.
