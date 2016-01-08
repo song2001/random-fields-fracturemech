@@ -26,14 +26,20 @@ class superSpecimen(object):
     Attributes:
         odbPath      = string location of ODB file. Must be of the form:
                        'C:\\temp\\folder\\odbfile.odb'
-        partName     = string name of 
         material     = string of material type: 'AP50' or 'AP70HP'
+        instanceName = string name of the instance in the ABAQUS assembly
         setName      = string of the name of the set of interest
                        (e.g. set to obtain VGI)
     
+    Attributes set by self.calcNodalExtrapMonoVGI():
+    
+    Attributes set by self.calcIntPtMonoVGI():
+    
+    Attributes set by self.calcAllMonoVGI():
+    
     Attributes set by self.calcNodalAvgMonoVGI():
         VGI          = array of entire VGI history
-                       rows are associated with abaqus frames
+                       rows are associated with ABAQUS frames
                        columns are associated with the nodes in the set
     
     Attributes set by self.calcElemAvgMonoVGI():

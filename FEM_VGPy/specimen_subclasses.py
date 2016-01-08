@@ -36,7 +36,7 @@ class SNTT(superSpecimen):
         radius       = float of the value for the notch radius
         failureDispl = list or tuple of the failure displacements (test results)
                        for this specimen
-        displSetName = string of the name of the set where displacement is applied
+        loadSetName  = string of the name of the set where displacement is applied
         setName      = string of the name of the set of interest
                        (e.g. set to obtain VGI)
     
@@ -68,7 +68,7 @@ class SNTT(superSpecimen):
     #
     def __init__(self, odbPath, material, radius, failureDispl, 
                        setName='CenterNode',
-                       displSetName='DisplacementSurface'):
+                       loadSetName='DisplacementSurface'):
         """ return object with desired attributes """
         
         # initialize the generic superclass variables
@@ -78,14 +78,14 @@ class SNTT(superSpecimen):
         # initialize SNTT-specific variables
         self.radius       = radius
         self.failureDispl = failureDispl
-        self.displSetName = displSetName.upper() # must be uppercase
+        self.loadSetName = loadSetName.upper() # must be uppercase
         return
     
     #
     # Methods
     #
     def determineFailureVGI(self):
-        """ 
+        """
         determine which VGI's correspond to failures.
         this is specific to SNTT because failure is specifically 
         related to the observed displacement
@@ -95,7 +95,7 @@ class SNTT(superSpecimen):
         # assume that the relevant displacement is in the 2-direction
         # (AKA y-direction), and further assume that the first node 
         # (column) is representative of the other columns
-        abqDispl = NodalVariable(self.odbPath, 'U', self.displSetName)
+        abqDispl = NodalVariable(self.odbPath, 'U', self.loadSetName)
         abqDispl.fetchNodalOutput()
         abqDispl = abqDispl.resultData[:,0,1]
         
@@ -305,7 +305,7 @@ class CT(superSpecimen):
     # """ bolt-bearing specimen. inherit from SNTT """
     # def __init__(self, odbPath, material, radius, failureDispl
                         # setName='',
-                        # displSetName=('LVDT_top','LVDT_bottom')):
+                        # loadSetName=('LVDT_top','LVDT_bottom')):
         # """
         # return instance with desired attributes
         # failureDispl should be the ABAQUS displacement... so, account for symmetry
@@ -313,7 +313,7 @@ class CT(superSpecimen):
         
         # # use SNTT init
         # SNTT.__init__(self, odbPath, material, radius, failureDispl,
-                       # setName,displSetName)
+                       # setName,loadSetName)
                        
         # # we dont want SNTT partName
         # self.partName = 'BB_symm'
@@ -328,7 +328,7 @@ class CT(superSpecimen):
         # raise Exception('failure displacement checks not thought through')
         # # obtain the displacement history of the LVDT sets
         # abqDispl = []
-        # for i,dset in enumerate(self.displSetName):
+        # for i,dset in enumerate(self.loadSetName):
             # # for all defined displacement sets
             # abqDispl.append( NodalVariable(self.odbPath, 'U', dset) )
             # abqDispl[i].fetchNodalOutput()
@@ -367,7 +367,7 @@ class CT(superSpecimen):
     
     # def __init__(self, odbPath, material, radius, failureDispl
                         # setName=''
-                        # displSetName='LVDT'):
+                        # loadSetName='LVDT'):
         # """
         # return instance with desired attributes
         # failureDispl should be the ABAQUS displacement... so, account for symmetry
@@ -375,7 +375,7 @@ class CT(superSpecimen):
         
         # # use SNTT init
         # SNTT.__init__(self, odbPath, material, radius, failureDispl,
-                       # setName,displSetName)
+                       # setName,loadSetName)
                        
         # # we dont want SNTT partName
         # self.partName = 'BH_symm'
@@ -389,7 +389,7 @@ class CT(superSpecimen):
         # """
         # raise Exception('failure displacement checks not thought through')
         # # obtain the displacement history of the LVDT set
-        # abqDispl = NodalVariable(self.odbPath, 'U', self.displSetName)
+        # abqDispl = NodalVariable(self.odbPath, 'U', self.loadSetName)
         # abqDispl.fetchNodalOutput()
         # # average this history accross nodes, to obtain 1 observation
         # # per frame, per coordinate direction
@@ -422,7 +422,7 @@ class CT(superSpecimen):
     # """ reduced beam section. inherit from BH """
     # def __init__(self, odbPath, material, radius, failureDispl
                         # setName=''
-                        # displSetName='LVDT'):
+                        # loadSetName='LVDT'):
         # """
         # return instance with desired attributes
         # failureDispl should be the ABAQUS displacement... so, account for symmetry
@@ -430,7 +430,7 @@ class CT(superSpecimen):
         
         # # use SNTT init (like BH)
         # SNTT.__init__(self, odbPath, material, radius, failureDispl,
-                       # setName,displSetName)
+                       # setName,loadSetName)
                        
         # # but we dont want SNTT partName
         # self.partName = 'RBS_'
