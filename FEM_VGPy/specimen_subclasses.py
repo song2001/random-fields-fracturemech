@@ -84,8 +84,11 @@ class SNTT(superSpecimen):
         abqDispl.fetchNodalOutput()
         abqDispl = abqDispl.resultData[:,0,1]
         
+        # ensure proper shape
+        loadHist = numpy.zeros((max(abqDispl.shape),1),dtype=numpy.float64)
+        loadHist[:,0] = abqDispl
         # save to attribute
-        self.loadHist = abqDispl
+        self.loadHist = loadHist
         return
     
     def determineFailureIndex(self):
@@ -116,7 +119,7 @@ class SNTT(superSpecimen):
             # check to see that it is within tolerance
             if percent_err[frameind] < self.ERR_TOL:
                 # good. save it.
-                failureIndex.append(frameind)
+                failureIndex.append(int(frameind))
             else:
                 # provide warning that something went wrong.
                 # append nothing. try to continue.
@@ -428,8 +431,12 @@ class BB(SNTT):
         lvdt1 = lvdt1.resultData[:,0,1]
         
         lvdt = numpy.absolute(lvdt0 - lvdt1)
+        
+        # ensure proper shape
+        loadHist = numpy.zeros((max(lvdt.shape),1),dtype=numpy.float64)
+        loadHist[:,0] = lvdt
         # save to attribute
-        self.loadHist = lvdt
+        self.loadHist = loadHist
         return
 
 class BH(SNTT):
@@ -480,8 +487,11 @@ class BH(SNTT):
         lvdt.avgNodalOutput()
         lvdt = 2.0 * lvdt.resultData[:,0,1]
         
+        # ensure proper shape
+        loadHist = numpy.zeros((max(lvdt.shape),1),dtype=numpy.float64)
+        loadHist[:,0] = lvdt
         # save to attribute
-        self.loadHist = lvdt
+        self.loadHist = loadHist
         return
 
 
