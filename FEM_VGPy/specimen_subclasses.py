@@ -29,66 +29,51 @@ from odbFieldVariableClasses import *
 class SNTT(superSpecimen):
     """ a smooth notched tensile test specimen. inherits from superSpecimen
     
+    SNTT(odbPath, material, failureLoad, setName, loadSetName)
+    
     Attributes:
         odbPath      = string location of ODB file. Must be of the form:
                        'C:\\temp\\folder\\odbfile.odb'
         material     = string of material type: 'AP50' or 'AP70HP'
-        radius       = float of the value for the notch radius
-        failureDispl = list or tuple of the failure displacements (test results)
+        failureLoad  = list or tuple of the failure displacements (test results)
                        for this specimen
-        loadSetName  = string of the name of the set where displacement is applied
         setName      = string of the name of the set of interest
                        (e.g. set to obtain VGI)
-    
-    Attributes set by self.calcNodalAvgMonoVGI():
-        VGI          = numpy array of entire VGI history
-                       rows are associated with abaqus frames
-                       columns are associated with the nodes in the set
-    
-    Attributes set by self.calcElemAvgMonoVGI():
-        VGI          = same as above, but values are associated with elements
-    
-    Attributes set by self.determineFailureVGI():
-        failureVGI   = numpy array of the VGI's associated with failure displacements
-                       row 1 is failureDispl 1, etc.
-                       columns are associated with the nodes in the set
-
-    Attributes set by self.fetchVolume():
-        elemVol      = numpy array of element volumes in self.setName
-        
-    Attributes set by self.fetchMesh():
-        nodesCoords  = numpy array of the nodal coordinates
-        elemConnect  = numpy array of the elemental connectivity
-    
-    
+        loadSetName  = string of the name of the set where displacement is applied
     """
-    
     #
     # Attributes (object initialization)
     #
-    def __init__(self, odbPath, material, radius, failureDispl, 
+    def __init__(self, odbPath, material, failureLoad, 
                        setName='CenterNode',
                        loadSetName='DisplacementSurface'):
         """ return object with desired attributes """
-        
-        # initialize the generic superclass variables
+        # initialize using superclass
         superSpecimen.__init__(self, odbPath=odbPath, instanceName="SNTT_", 
-                                     setName=setName, material=material)
-        
-        # initialize SNTT-specific variables
-        self.radius       = radius
-        self.failureDispl = failureDispl
-        self.loadSetName = loadSetName.upper() # must be uppercase
+                                     setName=setName, material=material,
+                                     failureLoad=failureLoad, loadSetName=loadSetName)
+        # set an SNTT-specific radius attribute
+        self.radius = float(self.name.split('_')[1][1:])/1000.0
         return
     
     #
+    # Properties
+    #
+    @property
+    def ERR_TOL(self):
+        # set the failure percent error tolerance
+        return 0.0005
+    #
     # Methods
     #
-    def determineFailureVGI(self):
+    def fetchLoadHist(self):
         """
-        determine which VGI's correspond to failures.
-        this is specific to SNTT because failure is specifically 
-        related to the observed displacement
+        fetch the abaqus displacement (load/response) history of the simulation.
+        
+        this is specific to SNTT specimens, such that the relevant displacement is
+        taken to be in the 2-direction (AKA y-direction), and that the first node
+        in the set is representative of all other nodes in the set (since they are
+        all prescribed the same displacement load in ABAQUS).
         """
         
         # obtain the displacement history of the simulation.
@@ -99,69 +84,87 @@ class SNTT(superSpecimen):
         abqDispl.fetchNodalOutput()
         abqDispl = abqDispl.resultData[:,0,1]
         
+        # save to attribute
+        self.loadHist = abqDispl
+        return
+    
+    def determineFailureIndex(self):
+        """
+        determine which "history" (AKA frame) index corresponding to failure.
+        
+        these indices correspond to the nearest percent error (within tolerance)
+        between the loadHist and failureLoad
+        """
+        
+        # obtain the displacement history of the simulation, if needed
+        if self.loadHist is None:
+            self.fetchLoadHist()
+        
         # number of frames in the abaqus history
-        nframe = abqDispl.shape[0]
+        nframe = self.loadHist.shape[0]
         
         # determine which frames correspond to failure
         failureIndex = []
-        for displ in self.failureDispl:
+        for displ in self.failureLoad:
             # for all failure displacements, locate which frame index it corresponds to.
             # we don't want to compare floats directly, so use a percent error
-            percent_err = numpy.absolute( (abqDispl - displ)/displ )
+            percent_err = numpy.absolute( 100.0*(self.loadHist - displ)/displ )
             
             # lowest percent error => equivalent to failure displ
             frameind = numpy.argmin(percent_err)
             
             # check to see that it is within tolerance
-            if percent_err[frameind] < 0.0005:
+            if percent_err[frameind] < self.ERR_TOL:
                 # good. save it.
                 failureIndex.append(frameind)
             else:
                 # provide warning that something went wrong.
                 # append nothing. try to continue.
-                print ("\n!! WARNING: the failure index could not be located" + 
-                       "for failure displacement " + str(displ) + " !!\n")
+                print ("\n!! WARNING: " + self.name + ": the failure index could not " +
+                       "be located for failure displacement " + str(displ) + " !!")
+                print "Nearest Percent Error is: " + str(percent_err[frameind]) + "\n"
         
-        # therefore, the VGI's at those frames are the failure VGI's... save them!
-        self._save_failureVGI(tuple(failureIndex))
-        
-        # we also want to save the "loading" history
-        self.loadHist = abqDispl
+        # save to atttribute
+        self.failureIndex = tuple(failureIndex)
         return
 
 class CT(superSpecimen):
     """ a compact tension specimen (ASTM E1820)
     
     Attributes:
-    
-    Attributes set by :
-        failureVGI   = array of the VGI's associated with failure displacements
-                       row 1 is failureDispl 1, etc.
-                       columns are associated with the nodes in the set
-        VGI          = array of entire VGI history
-                       rows are associated with abaqus frames
-                       columns are associated with the nodes in the set
-
-    Methods:
+        odbPath      = string location of ODB file. Must be of the form:
+                       'C:\\temp\\folder\\odbfile.odb'
+        material     = string of material type: 'AP50' or 'AP70HP'
+        failureLoad  = list or tuple of the failure J1 (test results)
+                       for this specimen (i.e. the observed J1c's)
+        setName      = string of the name of the set of interest
+                       (i.e. where to obtain VGI)
+        crackTipSet  = string name of the set defining the crack tip (must be a single node)
+        crackName    = string name of the crack, from which to obtain the ABAQUS J1 history
+        stepName     = string name of the relevant step, from which to obtain the ABAQUS J1 history
+        
+    failureLoad corresponds to J1 for CT specimens
     """
-    
     #
     # Attributes (object initialization)
     #
-    def __init__(self, odbPath, material, failureJ1, 
+    def __init__(self, odbPath, material, failureLoad, 
                        setName='CrackExtensionPlane', 
-                       crackTipSet='CrackTip', crackName='', stepName='Pull'):
+                       crackTipSet='CrackTip', crackName='', stepName='Pull',
+                       loadSetName=None):
         """ return object with desired attributes """
         
         # initialize generic superclass variables
         superSpecimen.__init__(self, odbPath=odbPath, instanceName="CT_", 
-                                     setName=setName, material=material)
+                                     setName=setName, material=material,
+                                     failureLoad=failureLoad)
         
         # initialize CT-specific variables
-        self.failureJ1   = failureJ1
         self.stepName    = stepName
         self.crackName   = crackName
-        self.crackTipSet = crackName.upper() # must be uppercase
+        self.crackTipSet = crackTipSet.upper() # must be uppercase
+        # loadSetName is not meaningful for CT
+        del self.loadSetName
         return
 
     #
@@ -192,7 +195,7 @@ class CT(superSpecimen):
         """
         
         #
-        # check if pre-requisits are properly met
+        # check if pre-requisites are properly met
         #
         if self.elementLabels is not None:
             #make sure element calcs have not been executed
@@ -230,7 +233,7 @@ class CT(superSpecimen):
             # find out which nodes are closest to "lstar away from the crack-tip"
             # this assumes crack tip is at a smaller x-coord than the crack opening
             target = crackTipCoords[0,0] - lstar
-            percent_err = numpy.absolute( (setCoords[:,0] - target) / target )
+            percent_err = numpy.absolute( 100.0*(setCoords[:,0] - target) / target )
             
             # the node we want would have the lowest percent error
             nodind = numpy.argmin(percent_err)
@@ -260,9 +263,14 @@ class CT(superSpecimen):
         
         self.lstarNodeInfo    = lstarNodeInfo
         return
+
+    def fetchLoadHist(self):
+        """
+        fetch the abaqus J1 (load/response) history of the simulation.
         
-    def determineFailureVGI(self):
-        """ determine which VGI's are the failure VGI's  """
+        this is specific to CT specimens, such that the relevant load/response is
+        the J1 of the defined crack.
+        """
         
         # obtain the J1 history of the simulation
         cv = CrackVariable(self.odbName, self.stepName, self.crackName)
@@ -278,12 +286,14 @@ class CT(superSpecimen):
         abqJ1       = numpy.zeros((nframeHist+1,1),dtype=numpy.float64)
         abqJ1[1:,:] = cv.resultData[:,-1]
 
-        
+        # save to attribute
+        self.loadHist = abqJ1
+        return        
         # find out which frames represent observed failure
         failureIndex = []
-        for J1c in self.failureJ1:
+        for J1c in self.failureLoad:
             #for each observed J1c, find the nearest abaqus J1 and it's index
-            percent_err = numpy.absolute( (abqJ1 - J1c)/J1c )
+            percent_err = numpy.absolute( 100.0*(abqJ1 - J1c)/J1c )
             
             # the frame we want has the lowest percent error
             index = numpy.argmin(percent_err)
@@ -295,143 +305,202 @@ class CT(superSpecimen):
         # we also want to save the "loading" history
         self.loadHist = abqJ1
         return
+        
+    def determineFailureIndex(self):
+        """
+        determine which "history" (AKA frame) index corresponds to failure.
+        
+        this is specific to CT because failure is specifically 
+        related to the observed J1c. this will automatically
+        call self.fetchLoadHist() if it has not been already executed.
+        """
+        
+        # obtain load history if not already set.
+        if self.loadHist is None:
+            self.fetchLoadHist()
+        
+        # rename for convenience
+        abqJ1 = self.loadHist
+        
+        # find out which frames correspond to observed failure
+        failureIndex = []
+        fi_pctErr    = []
+        for J1c in self.failureLoad:
+            #for each observed J1c, find the nearest abaqus J1 and it's index
+            percent_err = numpy.absolute( (abqJ1 - J1c)/J1c )
+            
+            # the frame we want has the lowest percent error
+            index = numpy.argmin(percent_err)
+            failureIndex.append( int(index) )
+            # in the case of a CT specimen, it would be nice to save the pct error
+            fi_pctErr.append( percent_err[index] )
+            
+        # save to attribute
+        self.failureIndex       = tuple(failureIndex)
+        self.failureIndexPctErr = tuple(fi_pctErr)
+        return
 
-##### None of the below currently works. Just a skeletal framework.
-# class BN(CT):
-    # """ blunted notch specimen. inherit from CT """
-
-
-# class BB(SNTT):
-    # """ bolt-bearing specimen. inherit from SNTT """
-    # def __init__(self, odbPath, material, radius, failureDispl
-                        # setName='',
-                        # loadSetName=('LVDT_top','LVDT_bottom')):
-        # """
-        # return instance with desired attributes
-        # failureDispl should be the ABAQUS displacement... so, account for symmetry
-        # """
+class BN(superSpecimen):
+    """ blunted notch specimen """
+    #
+    # Attributes (Object Initialization)
+    #
+    def __init__(self, odbPath, material, failureLoad,
+                        setName='CenterPlane',
+                        loadSetName='DisplControl'):
+        """ return instance with desired attributes """
         
-        # # use SNTT init
-        # SNTT.__init__(self, odbPath, material, radius, failureDispl,
-                       # setName,loadSetName)
-                       
-        # # we dont want SNTT partName
-        # self.partName = 'BB_symm'
-        # return
-        
-    # def determineFailureVGI(self):
-        # """ 
-        # determine which VGI's correspond to failures.
-        # this is specific to BB because failure is specifically 
-        # related to the observed LVDT (x2) measurements
-        # """
-        # raise Exception('failure displacement checks not thought through')
-        # # obtain the displacement history of the LVDT sets
-        # abqDispl = []
-        # for i,dset in enumerate(self.loadSetName):
-            # # for all defined displacement sets
-            # abqDispl.append( NodalVariable(self.odbPath, 'U', dset) )
-            # abqDispl[i].fetchNodalOutput()
-            # # average this history accross nodes, to obtain 1 observation
-            # # per frame, per coordinate direction
-            # abqDispl[i].avgNodalOutput()
-        
-        # # obtain difference between LVDT observations
-        # abqDispl = numpy.absolute( abqDispl[0].resultData - abqDispl[1].resultData )
-        
-        # # number of frames in the abaqus history
-        # nframe = abqDispl.shape[0]
-                
-        # # determine which VGI's are the failure VGI's
-        # failureVGI = numpy.zeros((len(self.failureDispl),self.VGI.shape[1]),dtype=numpy.float64)
-        
-        # row = int(0)
-        # alreadySaved = []
-        # for frame in range(0,nframe):
-            # for displ in self.failureDispl:
-                # # this assumes that first node (column) is representative of all displacements
-                # # and that the displacement is in the y-direction.
-                # # the alreadySaved variable is a hack due to abaqus sometimes
-                # # saving frame value twice (we dont want the same frame 2x)
-                # if (abqDispl[frame,0,1] == displ) and (displ not in alreadySaved):
-                    # failureVGI[row,:] = self.VGI[frame,:]
-                    # row += 1
-                    # alreadySaved.append(displ)
-        
-        # self.failureVGI = failureVGI
-        # return
-
-
-# class BH(SNTT):
-    # """ bolt-hole specimen. inherit from SNTT """
+        # initialize using superclass with BN defaults
+        superSpecimen.__init__(self, odbPath=odbPath, instanceName="BN", 
+                                     setName=setName, material=material,
+                                     failureLoad=failureLoad, loadSetName=loadSetName)
+        return
     
-    # def __init__(self, odbPath, material, radius, failureDispl
-                        # setName=''
-                        # loadSetName='LVDT'):
-        # """
-        # return instance with desired attributes
-        # failureDispl should be the ABAQUS displacement... so, account for symmetry
-        # """
+    #
+    # Methods
+    #
+    def fetchLoadHist(self):
+        """
+        ...
+        """
+        return
+    
+    def determineFailureIndex(self):
+        """
+        ...
+        """
+        return
+
+class BB(SNTT):
+    """ 
+    bolt-bearing specimen.
+    inherit from SNTT, since same determineFailureIndex() will be used.
+    """
+    #
+    # Attributes (Object Initialization)
+    #
+    def __init__(self, odbPath, material, failureLoad,
+                        setName='DeterministicLine',
+                        loadSetName=('LVDT_top','LVDT_bottom')):
+        """ return instance with desired attributes """
         
-        # # use SNTT init
-        # SNTT.__init__(self, odbPath, material, radius, failureDispl,
-                       # setName,loadSetName)
-                       
-        # # we dont want SNTT partName
-        # self.partName = 'BH_symm'
-        # return
+        # initialize using superclass, but with BB defaults
+        superSpecimen.__init__(self, odbPath=odbPath, instanceName="BB_symm", 
+                                     setName=setName, material=material,
+                                     failureLoad=failureLoad)
         
-    # def determineFailureVGI(self):
-        # """ 
-        # determine which VGI's correspond to failures.
-        # this is specific to BH because failure is specifically 
-        # related to the observed LVDT measurement
-        # """
-        # raise Exception('failure displacement checks not thought through')
-        # # obtain the displacement history of the LVDT set
-        # abqDispl = NodalVariable(self.odbPath, 'U', self.loadSetName)
-        # abqDispl.fetchNodalOutput()
-        # # average this history accross nodes, to obtain 1 observation
-        # # per frame, per coordinate direction
-        # abqDispl.avgNodalOutput()
+        # set names must be upper-case
+        self.loadSetName = tuple([ s.upper() for s in loadSetName ])        
+        return
+    
+    #
+    # Properties
+    #
+    @property
+    def ERR_TOL(self):
+        # set the failure percent error tolerance
+        return 0.5
+    
+    #
+    # Methods
+    #
+    def fetchLoadHist(self):
+        """
+        fetch the abaqus displacement (load/response) history of the simulation.
         
-        # # number of frames in the abaqus history
-        # nframe = abqDispl.resultData.shape[0]
-                
-        # # determine which VGI's are the failure VGI's
-        # failureVGI = numpy.zeros((len(self.failureDispl),self.VGI.shape[1]),dtype=numpy.float64)
+        this is specific to BB specimens, such that the relevant displacement is
+        taken to be in the 2-direction (AKA y-direction), and the load is taken
+        to be the difference between the average displacement of the top and 
+        bottom LVDT sets.
+        """
         
-        # row = int(0)
-        # alreadySaved = []
-        # for frame in range(0,nframe):
-            # for displ in self.failureDispl:
-                # # this assumes that first node (column) is representative of all displacements
-                # # and that the displacement is in the y-direction.
-                # # the alreadySaved variable is a hack due to abaqus sometimes
-                # # saving frame value twice (we dont want the same frame 2x)
-                # if (abqDispl.resultData[frame,0,1] == displ) and (displ not in alreadySaved):
-                    # failureVGI[row,:] = self.VGI[frame,:]
-                    # row += 1
-                    # alreadySaved.append(displ)
+        # obtain the displacement history of the simulation.
+        # assume that the relevant displacement is in the 2-direction
+        # (AKA y-direction).
+        lvdt0 = NodalVariable(self.odbPath, 'U', self.loadSetName[0])
+        lvdt0.fetchNodalOutput()
+        lvdt0.avgNodalOutput()
+        lvdt0 = lvdt0.resultData[:,0,1]
         
-        # self.failureVGI = failureVGI
-        # return
+        lvdt1 = NodalVariable(self.odbPath, 'U', self.loadSetName[1])
+        lvdt1.fetchNodalOutput()
+        lvdt1.avgNodalOutput()
+        lvdt1 = lvdt1.resultData[:,0,1]
+        
+        lvdt = numpy.absolute(lvdt0 - lvdt1)
+        # save to attribute
+        self.loadHist = lvdt
+        return
+
+class BH(SNTT):
+    """ 
+    bolt-hole specimen.
+    inherit from SNTT, since same determineFailureIndex() will be used.
+    """
+    #
+    # Attributes (Object Initialization)
+    #
+    def __init__(self, odbPath, material, failureLoad,
+                        setName='DeterministicLine',
+                        loadSetName='LVDT'):
+        """ override SNTT init. return BH instance with desired attributes """
+        
+        # initialize using superclass
+        superSpecimen.__init__(self, odbPath=odbPath, instanceName="BH_symm", 
+                                     setName=setName, material=material,
+                                     failureLoad=failureLoad, loadSetName=loadSetName)
+        return
+        
+    #
+    # Properties
+    #
+    @property
+    def ERR_TOL(self):
+        # set the failure percent error tolerance
+        return 0.5
+    
+    #
+    # Methods
+    #
+    def fetchLoadHist(self):
+        """
+        override SNTT fetchLoadHist
+        fetch the abaqus displacement (load/response) history of the simulation.
+        
+        this is specific to BB specimens, such that the relevant displacement is
+        taken to be in the 2-direction (AKA y-direction), and the load is taken
+        to be the 2x the displacement of the loadSet (due to symmetry)
+        """
+        
+        # obtain the displacement history of the simulation.
+        # assume that the relevant displacement is in the 2-direction
+        # (AKA y-direction).
+        lvdt = NodalVariable(self.odbPath, 'U', self.loadSetName)
+        lvdt.fetchNodalOutput()
+        lvdt.avgNodalOutput()
+        lvdt = 2.0 * lvdt.resultData[:,0,1]
+        
+        # save to attribute
+        self.loadHist = lvdt
+        return
 
 
-# class RBS(BH):
-    # """ reduced beam section. inherit from BH """
-    # def __init__(self, odbPath, material, radius, failureDispl
-                        # setName=''
-                        # loadSetName='LVDT'):
-        # """
-        # return instance with desired attributes
-        # failureDispl should be the ABAQUS displacement... so, account for symmetry
-        # """
+
+class RBS(BH):
+    """ 
+    reduced beam section
+    inherit from BH, since same methods will be used.
+    """
+    #
+    # Attributes (Object Initialization)
+    #
+    def __init__(self, odbPath, material, failureLoad,
+                        setName='CenterNode',
+                        loadSetName='LVDT'):
+        """ override BH init. return instance with desired attributes """
         
-        # # use SNTT init (like BH)
-        # SNTT.__init__(self, odbPath, material, radius, failureDispl,
-                       # setName,loadSetName)
-                       
-        # # but we dont want SNTT partName
-        # self.partName = 'RBS_'
-        # return
+        # initialize using superclass but with RBS defaults
+        superSpecimen.__init__(self, odbPath=odbPath, instanceName="RBS_", 
+                                     setName=setName, material=material,
+                                     failureLoad=failureLoad,loadSetName=loadSetName)
+        return

@@ -32,10 +32,23 @@ class superSpecimen(object):
                        (e.g. set to obtain VGI)
     
     Attributes set by self.calcNodalExtrapMonoVGI():
-    
+        VGI          = rank-3 array of nodal (extrapolated) VGI history 
+                       for each element in the defined element set setName.
+                       access is: VGI[frame,node,element]
+                       see:       self.elemLabelSet, self.nodeLabelSet
+                       VGI[:,:,e] corresponds to element self.elemLabelSet[e]
+                       
     Attributes set by self.calcIntPtMonoVGI():
-    
+        VGI          = rank-3 array of integration point VGI history
+                       for each element in the defined element set setName.
+                       access is: VGI[frame,ip,element]
+                       see:       self.elemLabelSet, self.intPtLabelSet
+                       VGI[:,:,e] corresponds to element self.elemLabelSet[e]
+                       
     Attributes set by self.calcAllMonoVGI():
+        VGI          = dictionary with two keys--
+                       VGI['ELEM_NODAL'] is the VGI from self.calcNodalExtrapMonoVGI
+                       VGI['ELEM_IP'] is the VGI from self.calcIntPtMonoVGI
     
     Attributes set by self.calcNodalAvgMonoVGI():
         VGI          = array of entire VGI history
@@ -57,7 +70,8 @@ class superSpecimen(object):
     #
     # Attributes (object initialization)
     #
-    def __init__(self, odbPath, material, instanceName, setName):
+    def __init__(self, odbPath, material, instanceName,
+                       setName, failureLoad=None, loadSetName=None):
         """ return object with desired attributes """
         
         self.odbPath  = odbPath
@@ -66,20 +80,27 @@ class superSpecimen(object):
         self.setName      = setName.upper()
         self.material     = material.upper()
         self.instanceName = instanceName.upper()
+        if loadSetName is not None:
+            self.loadSetName  = loadSetName.upper()
         
         # set from Methods:
         #calc VGI's
         self.VGI           = None
-        self.failureVGI    = None
-        self.nodeLabels    = None
-        self.elementLabels = None
-        self.intPtLabels   = None
+        self.failureIndex  = None
+        self.nodeLabelSet  = None
+        self.elemLabelSet  = None
+        self.intPtLabelSet = None
         #fetchMesh
         self.nodesCoords   = None
         self.elemConnect   = None
         self.elemType      = None
         #fetchVolume
         self.elemVol       = None
+        
+        # initialize failureLoad related attributes.
+        # these should be set/handled by the subclasses
+        self.failureLoad = failureLoad
+        self.loadHist    = None
         return
     
     #
@@ -127,8 +148,8 @@ class superSpecimen(object):
     
         # save VGI and labels, then return
         self.VGI = VGI
-        self.elementLabels = mises.elementLabels
-        self.nodeLabels    = mises.nodeLabels
+        self.elemLabelSet = mises.elementLabels
+        self.nodeLabelSet = mises.nodeLabels
         return
         
     def calcIntPtMonoVGI(self):
@@ -160,8 +181,8 @@ class superSpecimen(object):
     
         # save VGI and labels, then return
         self.VGI = VGI
-        self.elementLabels = mises.elementLabels
-        self.intPtLabels   = mises.intPtLabels
+        self.elemLabelSet  = mises.elementLabels
+        self.intPtLabelSet = mises.intPtLabels
         return
 
     def calcAllMonoVGI(self):
@@ -210,7 +231,7 @@ class superSpecimen(object):
         
         # save VGI and labels, then return
         self.VGI = VGI
-        self.nodeLabels = PEEQ.nodeLabels
+        self.nodeLabelSet = PEEQ.nodeLabels
         return
     
     def calcElemAvgMonoVGI(self):
@@ -233,26 +254,7 @@ class superSpecimen(object):
         
         # save VGI and labels, then return
         self.VGI = VGI
-        self.elementLabels = PEEQ.elementLabels
-        return
-
-    def _save_failureVGI(self, failureIndex):
-        """ given a tuple of the failure indices, extract/save the self.falureVGI """
-        
-        if type(self.VGI) is dict:
-            # if self.VGI is dict, we want failureVGI to be a dict
-            failureVGI = {}
-            for key,VGI in self.VGI.items():
-                # in those cases, VGI is always rank-3: see self.calcAllMonoVGI()
-                failureVGI[key] = VGI[failureIndex,:,:]
-        
-        # otherwise, self.VGI is a numpy array of rank-2 or rank-3
-        elif len(self.VGI.shape) == 2:
-            failureVGI = self.VGI[failureIndex,:]
-        elif len(self.VGI.shape) == 3:
-            failureVGI = self.VGI[failureIndex,:,:]
-        
-        self.failureVGI = failureVGI
+        self.elemLabelSet = PEEQ.elementLabels
         return
         
     def fetchMeshInfo(self, instanceName=None, exactKey=False):
