@@ -88,7 +88,7 @@ def _convert_dict_dtypes(dictionary):
     return dict_out
 
 
-def VGIPy(inputData, saveKey):
+def VGPy(inputData, saveKey, append=False):
     """ 
     saves a python FEM_VGPy object instance
     (or list/tuple of FEM_VGPy object instances)
@@ -97,7 +97,14 @@ def VGIPy(inputData, saveKey):
     input:
         inputData = single or list/tuple of VGPy objects
         saveKey   = string name to save the MATLAB structure
+        append    = optional logical flag (default = False) to indicate  
+                    whether the data should be appended to the (already 
+                    existing) .MAT file. Meaningless if the file doesn't
+                    already exist.
     """
+    # remove .MAT from saveKey if it was specified
+    if saveKey.endswith('.mat'):
+        saveKey = saveKey[:-4]
     # get CWD
     wd = os.getcwd()
     # change to save dir
@@ -120,9 +127,8 @@ def VGIPy(inputData, saveKey):
         # now, convert dict to struct
         saveStruct = eng.struct(saveData)       
         
-        # transport struct to matlab workspace, and save
+        # transport struct to matlab workspace
         eng.workspace[saveKey] = saveStruct
-        eng.save(saveKey + '.mat',saveKey,nargout=0)
         
     else:
         #assume input is a VGIPy class or otherwise has a name attribute
@@ -138,13 +144,17 @@ def VGIPy(inputData, saveKey):
         # now, convert dict to struct
         saveStruct = eng.struct(saveData)       
         
-        # transport struct to matlab workspace, and save
+        # transport struct to matlab workspace
         eng.workspace[saveKey] = saveStruct
-        eng.save(saveKey + '.mat',saveKey,nargout=0)
-
-
+    
+    # save the transported struct
+    if append:
+        eng.save(saveKey + '.mat','-struct',saveKey,'-append',nargout=0)
+    else:
+        eng.save(saveKey + '.mat','-struct',saveKey,nargout=0)
+    
     # exit matlab engine
-    eng.quit()    
+    eng.quit()
     # return to previous dir
     os.chdir( wd )
     # alert user
