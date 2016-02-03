@@ -21,6 +21,7 @@ import myPaths
 sys.path.append(myPaths.OdbTools())
 from specimen_superclasses import *
 from odbFieldVariableClasses import *
+from odbHistoryVariableClasses import *
 
 #
 # subclass definitions
@@ -142,7 +143,8 @@ class CT(superSpecimen):
                        for this specimen (i.e. the observed J1c's)
         setName      = string of the name of the set of interest
                        (i.e. where to obtain VGI)
-        crackTipSet  = string name of the set defining the crack tip (must be a single node)
+        crackTipSet  = string name of the set defining the crack tip (must be a single node).
+                       only used for deterministic calculations.
         crackName    = string name of the crack, from which to obtain the ABAQUS J1 history
         stepName     = string name of the relevant step, from which to obtain the ABAQUS J1 history
         
@@ -153,8 +155,7 @@ class CT(superSpecimen):
     #
     def __init__(self, odbPath, material, failureLoad, 
                        setName='CrackExtensionPlane', 
-                       crackTipSet='CrackTip', crackName='', stepName='Pull',
-                       loadSetName=None):
+                       crackTipSet='CrackTip', crackName='Crack', stepName='Pull'):
         """ return object with desired attributes """
         
         # initialize generic superclass variables
@@ -164,10 +165,8 @@ class CT(superSpecimen):
         
         # initialize CT-specific variables
         self.stepName    = stepName
-        self.crackName   = crackName
+        self.crackName   = crackName.upper()   # must be uppercase
         self.crackTipSet = crackTipSet.upper() # must be uppercase
-        # loadSetName is not meaningful for CT
-        del self.loadSetName
         return
 
     #
@@ -179,10 +178,15 @@ class CT(superSpecimen):
         """ this is the deterministic length scale """
         if self.material == 'AP50':
             return (0.0033, 0.007, 0.017)
-        elif self.material == 'AP70HP':
+        elif self.material in ('AP70HP','HPS70W'):
             return (0.0025, 0.012, 0.016)
         else:
             raise Exception('Undefined material!')
+    
+    @property
+    def ERR_TOL(self):
+        # set the failure percent error tolerance
+        return 0.6
     
     #
     # Methods
@@ -191,7 +195,7 @@ class CT(superSpecimen):
         """ 
         obtain the deterministic VGI.
         this means the VGI associated with the l* characteristic lengths.
-        by default, this will overwrite the self.VGI and self.nodeLabels attribute
+        by default, this will overwrite the self.VGI and self.nodeLabelSet attribute
         otherwise, it will save new attributes: self.deterministicVGI
         
         this will also save a new attribute: self.lstarNodeInfo, which is [index, nodeLabel]
@@ -200,13 +204,13 @@ class CT(superSpecimen):
         #
         # check if pre-requisites are properly met
         #
-        if self.elementLabels is not None:
-            #make sure element calcs have not been executed
+        if self.elemLabelSet is not None:
+            # make sure element calcs have not been executed
             raise Exception("method not supported or meaningful for element output")
-        elif self.nodeLabels is None:
-            #if nodal calcs have not been executed, execute them...
-            print "\nExecuting calcNodalAvgMonoVGI()..."
-            self.calcNodalAvgMonoVGI()
+        elif self.nodeLabelSet is None:
+            # if nodal calcs have not been executed, execute them...
+            print "\nExecuting calcNodalAvgMonoVGI()...",
+            self.calcNodalAvgMonoVGI(),
             print "done!\n"
         
         #
@@ -216,13 +220,13 @@ class CT(superSpecimen):
         # find out crack node initial coordinates
         dummy = NodalVariable(self.odbName, 'COORD', self.crackTipSet)
         dummy.fetchNodalOutput()
-        crackTipCoords = dummy.resultData[0,:,:] #first frame
+        crackTipCoords = dummy.resultData[0,:,0] #first frame, x-coord
         del dummy
         
         # find initial coordinates of the nodes ahead of the crack tip
         dummy = NodalVariable(self.odbName, 'COORD', self.setName)
         dummy.fetchNodalOutput()
-        setCoords = dummy.resultData[0,:,:] #first frame
+        setCoords = dummy.resultData[0,:,0] #first frame, x-coord
         del dummy
         
         # find out how many l*'s there are
@@ -230,21 +234,21 @@ class CT(superSpecimen):
         
         # find out which nodes are associated with the l*'s, and their index
         # (i.e., which of the nodes do we want to save data for?)
-        lstarNodeInfo = numpy.zeros((2,nlstar),dtype=numpy.int_)
+        lstarNodeInfo = numpy.zeros((2,nlstar),dtype=int)
         
         for i,lstar in enumerate(self.lstar):
             # find out which nodes are closest to "lstar away from the crack-tip"
             # this assumes crack tip is at a smaller x-coord than the crack opening
-            target = crackTipCoords[0,0] - lstar
-            percent_err = numpy.absolute( 100.0*(setCoords[:,0] - target) / target )
+            target = crackTipCoords[0] - lstar
+            percent_err = numpy.absolute( 100.0*(setCoords - target) / target )
             
             # the node we want would have the lowest percent error
             nodind = numpy.argmin(percent_err)
             
-            #save the nodal index value
+            # save the nodal index value
             lstarNodeInfo[0,i] = nodind
-            #save the actual node label, for debugging...
-            lstarNodeInfo[1,i] = self.nodeLabels[nodind]
+            # save the actual node label, for debugging...
+            lstarNodeInfo[1,i] = self.nodeLabelSet[nodind]
         
         #
         # fetch the VGI at those node locations:
@@ -276,36 +280,20 @@ class CT(superSpecimen):
         """
         
         # obtain the J1 history of the simulation
-        cv = CrackVariable(self.odbName, self.stepName, self.crackName)
-        cv.getJintegral()
+        cv = CrackVariable(self.odbPath, self.stepName, self.crackName)
+        cv.fetchJintegral()
         
         # number of total frames in the abaqus history
-        nframeHist = cv.shape[0]
+        nframeHist = cv.resultData.shape[0]
         
         # we want to prepend the J1 with a zero, since it is a history 
         # variable; history variables start at the first non-zero frame,
         # while field variables start at frame 0. This allows us to 
         # return field-variable compatible indices.
         abqJ1       = numpy.zeros((nframeHist+1,1),dtype=numpy.float64)
-        abqJ1[1:,:] = cv.resultData[:,-1]
+        abqJ1[1:,0] = cv.resultData[:,-1]
 
         # save to attribute
-        self.loadHist = abqJ1
-        return        
-        # find out which frames represent observed failure
-        failureIndex = []
-        for J1c in self.failureLoad:
-            #for each observed J1c, find the nearest abaqus J1 and it's index
-            percent_err = numpy.absolute( 100.0*(abqJ1 - J1c)/J1c )
-            
-            # the frame we want has the lowest percent error
-            index = numpy.argmin(percent_err)
-            failureIndex.append( int(index) )
-            
-        # therefore, the VGI's at those frames are the failure VGI's... save them!
-        self._save_failureVGI(tuple(failureIndex))
-        
-        # we also want to save the "loading" history
         self.loadHist = abqJ1
         return
         
@@ -330,48 +318,24 @@ class CT(superSpecimen):
         fi_pctErr    = []
         for J1c in self.failureLoad:
             #for each observed J1c, find the nearest abaqus J1 and it's index
-            percent_err = numpy.absolute( (abqJ1 - J1c)/J1c )
+            percent_err = numpy.absolute( 100.0*(abqJ1 - J1c)/J1c )
             
             # the frame we want has the lowest percent error
-            index = numpy.argmin(percent_err)
-            failureIndex.append( int(index) )
-            # in the case of a CT specimen, it would be nice to save the pct error
-            fi_pctErr.append( percent_err[index] )
+            frameind = numpy.argmin(percent_err)
+
+            # check to see that it is within tolerance
+            if percent_err[frameind] < self.ERR_TOL:
+                # good. save it.
+                failureIndex.append(int(frameind))
+            else:
+                # provide warning that something went wrong.
+                # append nothing. try to continue.
+                print ("\n!! WARNING: " + self.name + ": the failure index could not " +
+                       "be located for J_1c " + str(J1c) + " !!")
+                print "Nearest Percent Error is: " + str(percent_err[frameind]) + "\n"
             
         # save to attribute
-        self.failureIndex       = tuple(failureIndex)
-        self.failureIndexPctErr = tuple(fi_pctErr)
-        return
-
-class BN(superSpecimen):
-    """ blunted notch specimen """
-    #
-    # Attributes (Object Initialization)
-    #
-    def __init__(self, odbPath, material, failureLoad,
-                        setName='CenterPlane',
-                        loadSetName='DisplControl'):
-        """ return instance with desired attributes """
-        
-        # initialize using superclass with BN defaults
-        superSpecimen.__init__(self, odbPath=odbPath, instanceName="BN", 
-                                     setName=setName, material=material,
-                                     failureLoad=failureLoad, loadSetName=loadSetName)
-        return
-    
-    #
-    # Methods
-    #
-    def fetchLoadHist(self):
-        """
-        ...
-        """
-        return
-    
-    def determineFailureIndex(self):
-        """
-        ...
-        """
+        self.failureIndex = tuple(failureIndex)
         return
 
 class BB(SNTT):
@@ -513,4 +477,25 @@ class RBS(BH):
         superSpecimen.__init__(self, odbPath=odbPath, instanceName="RBS_", 
                                      setName=setName, material=material,
                                      failureLoad=failureLoad,loadSetName=loadSetName)
+        return
+
+class BN(BB):
+    """ 
+    blunted notch specimen 
+    inherit from BB. same methods will be used.
+    """
+    #
+    # Attributes (Object Initialization)
+    #
+    def __init__(self, odbPath, material, failureLoad,
+                        setName='CenterPlane',
+                        loadSetName=('DisplGageTop','DisplGageBot')):
+        """ return instance with desired attributes """
+        
+        # initialize using superclass with BN defaults
+        superSpecimen.__init__(self, odbPath=odbPath, instanceName="BN", 
+                                     setName=setName, material=material,
+                                     failureLoad=failureLoad)
+        # set names must be upper-case
+        self.loadSetName = tuple([ s.upper() for s in loadSetName ])  
         return
