@@ -138,13 +138,7 @@ class superSpecimen(object):
         pressure.fetchNodalExtrap()
         
         # obtain the VGI history of the simulation
-        # this must be done for all nodes within each element
-        VGI = numpy.zeros(mises.resultData.shape, dtype=numpy.float64)
-        
-        for i in range(0,len(mises.elementLabels)):
-            VGI[:,:,i] = calcMonotonicVGI( mises.resultData[:,:,i],
-                            pressure.resultData[:,:,i], 
-                            PEEQ.resultData[:,:,i] )
+        VGI = calcMonotonicVGI( mises.resultData, pressure.resultData, PEEQ.resultData )
     
         # save VGI and labels, then return
         self.VGI = VGI
@@ -171,13 +165,7 @@ class superSpecimen(object):
         pressure.fetchIntPtData()
         
         # obtain the VGI history of the simulation
-        # this must be done for all IntPts within each element
-        VGI = numpy.zeros(mises.resultData.shape, dtype=numpy.float64)
-        
-        for i in range(0,len(mises.elementLabels)):
-            VGI[:,:,i] = calcMonotonicVGI( mises.resultData[:,:,i],
-                            pressure.resultData[:,:,i], 
-                            PEEQ.resultData[:,:,i] )
+        VGI = calcMonotonicVGI( mises.resultData, pressure.resultData, PEEQ.resultData )
     
         # save VGI and labels, then return
         self.VGI = VGI
