@@ -167,26 +167,42 @@ class CT(superSpecimen):
         self.stepName    = stepName
         self.crackName   = crackName.upper()   # must be uppercase
         self.crackTipSet = crackTipSet.upper() # must be uppercase
+        self.lstars      = None
         return
 
     #
     # Dependent Properties
     #
     
+#    @property
+#    def lstar(self):
+#        """ this is the deterministic length scale """
+#        if self.material == 'AP50':
+#            return (0.0033, 0.007, 0.017)
+#        elif self.material in ('AP70HP','HPS70W'):
+#            return (0.0025, 0.012, 0.016)
+#        else:
+#            raise Exception('Undefined material!')
+
     @property
-    def lstar(self):
-        """ this is the deterministic length scale """
+    def max_lstar(self):
+        """ this is the maximum permissible deterministic length scale """
         if self.material == 'AP50':
-            return (0.0033, 0.007, 0.017)
+            return 0.03
         elif self.material in ('AP70HP','HPS70W'):
-            return (0.0025, 0.012, 0.016)
+            return 0.03
         else:
             raise Exception('Undefined material!')
     
     @property
     def ERR_TOL(self):
-        # set the failure percent error tolerance
+        """ failure percent error tolerance """
         return 0.6
+        
+    @property
+    def DIST_ZTOL(self):
+        """ distance zero-tolerance """
+        return 1.0e-8
     
     #
     # Methods
@@ -198,7 +214,9 @@ class CT(superSpecimen):
         by default, this will overwrite the self.VGI and self.nodeLabelSet attribute
         otherwise, it will save new attributes: self.deterministicVGI
         
-        this will also save a new attribute: self.lstarNodeInfo, which is [index, nodeLabel]
+        this will also save new attributes: 
+        self.lstarNodeInfo, which is [index, nodeLabel]
+        self.lstars, which is [distance from crack tip]
         """
         
         #
@@ -214,10 +232,10 @@ class CT(superSpecimen):
             print "done!\n"
         
         #
-        # determine which nodal locations are associated with the l*'s
+        # determine which nodal locations are potential l* candidates
         #
         
-        # find out crack node initial coordinates
+        # find initial coordinates of crack tip node
         dummy = NodalVariable(self.odbName, 'COORD', self.crackTipSet)
         dummy.fetchNodalOutput()
         crackTipCoords = dummy.resultData[0,:,0] #first frame, x-coord
@@ -229,46 +247,40 @@ class CT(superSpecimen):
         setCoords = dummy.resultData[0,:,0] #first frame, x-coord
         del dummy
         
-        # find out how many l*'s there are
-        nlstar = len(self.lstar)
-        
-        # find out which nodes are associated with the l*'s, and their index
+        # find which nodes exist from crack tip to max_lstar
         # (i.e., which of the nodes do we want to save data for?)
-        lstarNodeInfo = numpy.zeros((2,nlstar),dtype=int)
+        max_dist = numpy.absolute(crackTipCoords[0] - self.max_lstar)
+        set_dist = numpy.absolute(setCoords - crackTipCoords[0])
+        nodinds  = numpy.where(set_dist < max_dist)
+        nnodLS   = numpy.sum(set_dist < max_dist)   # number of node l* candidates
         
-        for i,lstar in enumerate(self.lstar):
-            # find out which nodes are closest to "lstar away from the crack-tip"
-            # this assumes crack tip is at a smaller x-coord than the crack opening
-            target = crackTipCoords[0] - lstar
-            percent_err = numpy.absolute( 100.0*(setCoords - target) / target )
-            
-            # the node we want would have the lowest percent error
-            nodind = numpy.argmin(percent_err)
-            
-            # save the nodal index value
-            lstarNodeInfo[0,i] = nodind
-            # save the actual node label, for debugging...
-            lstarNodeInfo[1,i] = self.nodeLabelSet[nodind]
+        # preallocate storage arrays
+        lstarNodeInfo = numpy.zeros((2,nnodLS),dtype=int)
+        lstars        = numpy.zeros((1,nnodLS),dtype=numpy.float64)
+        
+        # save the nodal index values and actual node labels to lstarNodeInfo
+        lstarNodeInfo[0,:] = nodinds
+        lstarNodeInfo[1,:] = self.nodeLabelSet[nodinds]
+        
+        # save the actual distance values, as these are the potential l*'same
+        lstars[0,:] = set_dist[nodinds]
         
         #
-        # fetch the VGI at those node locations:
+        # fetch the VGI at those node locations
         #
-        nframe = self.VGI.shape[0]
-        deterministicVGI = numpy.zeros((nframe,nlstar),dtype=numpy.float64)
-        
-        for i,nodind in enumerate(lstarNodeInfo[0,:]):
-            deterministicVGI[:,i] = self.VGI[:,nodind]
+        deterministicVGI = self.VGI[:,nodinds]
         
         #
         # save and return
         #
+        self.lstars        = lstars
+        self.lstarNodeInfo = lstarNodeInfo
+        
+        # overwrite VGI by default, otherwise save separately
         if overwrite:
-            del self.VGI
             self.VGI = deterministicVGI
         else:
             self.deterministicVGI = deterministicVGI
-        
-        self.lstarNodeInfo    = lstarNodeInfo
         return
 
     def fetchLoadHist(self):
