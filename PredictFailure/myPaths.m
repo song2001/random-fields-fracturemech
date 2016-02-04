@@ -19,6 +19,10 @@ switch lower(lib_str)
         dir_str = 'C:\Temp\VGPy_Databases';
     case 'fem-interp'
         dir_str = 'C:\Users\Vince Pericoli\Documents\GitHub\fem-interp';
+    case 'save-results-homogeneous'
+        dir_str = 'C:\Temp\Master Results\Deterministic_Results';
+    case 'save-results-weibull'
+        dir_str = 'C:\Temp\Master Results\Weibull_Results';
 end
 
 
